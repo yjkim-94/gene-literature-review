@@ -5,6 +5,7 @@ Runs fetch_genes for each eval keyword and reports what fraction of the
 curated canonical genes appear in the returned top-N list. This is the part of
 the skill worth measuring automatically -- summary prose is judged by a human.
 """
+import csv
 import json
 import os
 import subprocess
@@ -16,12 +17,13 @@ FETCH = os.path.join(HERE, "..", "scripts", "fetch_genes.py")
 
 
 def run_one(keyword, gold, top_n, scan):
-    out = os.path.join(tempfile.gettempdir(), f"eval_{keyword}.json")
+    out = os.path.join(tempfile.gettempdir(), f"eval_{keyword}.tsv")
     subprocess.run([sys.executable, FETCH, "--keyword", keyword, "--organism",
                     "human", "--max", str(top_n), "--scan", str(scan),
                     "--out", out],
                    check=True, stderr=subprocess.DEVNULL)
-    got = [g["symbol"] for g in json.load(open(out, encoding="utf-8"))]
+    with open(out, encoding="utf-8", newline="") as f:
+        got = [row["symbol"] for row in csv.DictReader(f, delimiter="\t")]
     hits = [g for g in gold if g in got]
     return got, hits
 
