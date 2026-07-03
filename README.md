@@ -22,6 +22,22 @@ gene-literature-review/
 
 Run: `cd gene-literature-review && python scripts/fetch_genes.py --keyword "<keyword>" --max 20 --out output/genes.tsv` (tab-separated TSV — opens directly in Excel)
 
+### Output columns (`genes.tsv`)
+
+| Column | Meaning |
+|--------|---------|
+| `symbol` | Gene symbol (from PubTator NER → NCBI esummary). |
+| `gene_id` | NCBI Gene ID. |
+| `name` | Full gene name. |
+| `co_papers` | Papers where the gene entity co-occurs with the keyword (specificity numerator). |
+| `gene_papers` | Total papers with the gene entity, keyword or not (specificity denominator). |
+| `specificity` | `co_papers / gene_papers` — how keyword-exclusive the gene is (1 = studied only in this keyword's context, ~0 = ubiquitous passenger). |
+| `spec_lower` | Wilson lower bound of `specificity` — shrinks thinly-supported genes so a 3/3 ratio can't beat a core gene backed by hundreds. **This is the sort key.** |
+| `below_floor` | `true` if `gene_papers` < `--min-gene-papers` (default 10): too little evidence, demoted to the bottom (not deleted). |
+| `evidence_pmids` | Up to 3 representative PMIDs from the entity co-occurrence query (`;`-joined) — real, verifiable evidence, never fabricated. |
+
+Rows are sorted by `spec_lower` descending.
+
 ## Core design (why it works this way)
 
 The two failure modes this skill must prevent, in priority order:
