@@ -1,0 +1,3 @@
+# Normalize line endings to LF on every machine (Windows autocrlf vs Linux server).
+# Prevents TSVs written by Python csv (\r\n) from showing as falsely "modified".
+* text=auto eol=lf
