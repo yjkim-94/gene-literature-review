@@ -39,11 +39,13 @@ The keyword is used in two places in the script, with asymmetric synonym handlin
 | 3 | Expand to MeSH entry terms, symmetric | Ambiguous input silently maps to the wrong MeSH (trait vs disease) | Confirm the expanded query + literal fallback |
 | 4 | **Plan D (adopted)** | none | — |
 
-### Adopted: Plan D
+### Adopted: Plan D — later superseded by Design F
 
 User keyword → **resolve to a MeSH concept, expand to curated synonyms** →
 **confirm the expanded query once** → apply symmetrically to both discovery and the specificity numerator →
 record in the method section. Novel terms with no MeSH (cuproptosis, etc.) fall back to **literal** (an exact string with no synonym problem).
+
+> **Superseded (Design F):** the "OR-expand curated synonyms" mechanism was replaced. Post-implementation measurement showed free-text synonyms are **not** auto-normalized and grouping-less OR **collapses** the PubTator parser (`atopic dermatitis OR atopic eczema` → 20,466, below the single term's 66,111). The PubTator **concept entity** (`@DISEASE_Dermatitis_Atopic`) unions synonyms natively in one exact call — see Design F. The MeSH-grounding + confirmation-gate insight below still holds; only the query mechanism changed.
 
 **Insights**
 1. The root of failure isn't lack of synonyms but the **asymmetric keyword handling across the two subsystems** — expanding only one side distorts specificity, so both must be expanded together.
@@ -192,6 +194,39 @@ mandate replacing it. (This has since been implemented — see the scripts and R
 
 ---
 
+## Design F — Concept entity replaces OR-expansion (measurement-driven revision)
+
+Design A's adopted Plan D OR-expanded a MeSH concept's curated entry terms into `--keyword`. Post-implementation measurement falsified its premise.
+
+### Measured facts (PubTator3, atopic dermatitis)
+
+| Query | count | note |
+|-------|-------|------|
+| `atopic dermatitis` | 66,111 | dominant single term |
+| `atopic eczema` | 20,397 | different count, top-page PMIDs **0/10** overlap with AD → distinct papers |
+| `atopic dermatitis OR atopic eczema` | 20,466 | **collapses below the single term** — OR is not a union |
+| `"@DISEASE_Dermatitis_Atopic"` (entity) | 64,349 | synonym-union universe, one call |
+| `"@GENE_2312" AND "@DISEASE_Dermatitis_Atopic"` | 3,397 | FLG entity co-occurrence (vs 3,349 free-text) |
+
+Two findings overturn Plan D: (1) free-text synonyms are **not** auto-normalized (each matches a different set), so a single term under-covers; (2) grouping-less OR **collapses the PubTator parser** (mis-scopes the `AND`), so it can never union. The earlier "single canonical term is highest-recall" claim (an interim PROBLEM.md note) was also only half-right.
+
+### Adopted: PubTator concept entity as the keyword side
+
+- Resolve the keyword to a **PubTator concept entity** (`@DISEASE_Dermatitis_Atopic`), passed as `--entity`. Both discovery and the specificity numerator become `"@GENE_<id>" AND "<entity>"` (each token **quoted** — the unquoted `:` in `@DISEASE_MESH:D…` 400s). The entity **unions the concept's surface synonyms natively** in one exact call — no OR, no parser fragility.
+- **Objective concept selection**: `entity_candidates()` (`--resolve` mode) fetches PubTator autocomplete candidates + each one's paper count, so the concept is chosen by **evidence volume, not the AI's dominant-sense guess** — this mechanizes the round-3 NON-FATAL-3 "no concept self-confidence" rule (autocomplete = objective, `[]` ⇒ novel term ⇒ free-text fallback).
+- Novel terms with no entity (cuproptosis) omit `--entity` → free-text `--keyword`, unchanged.
+
+**Insight**: the two-subsystem symmetry (Design A insight 1) is preserved — the entity is applied to *both* discovery and numerator. What changed is the vehicle: an **entity** (normalized, exact) instead of an **OR string** (fragile, non-normalizing). The MeSH-grounding + confirmation gate (Design A/B) still stands.
+
+### Implementation deltas adopted alongside Design F (same iteration)
+
+- **`spec_lower` → `spec_adj`** column rename (readability; "confidence-adjusted specificity"). Same Wilson-lower-bound semantics.
+- **Run directory** `output/<slug>/`: every artifact of one run co-located; `slug()` is the single source of truth (empty-slug → `kw-<md5>` fallback so non-ASCII keywords don't collide).
+- **Scoring bounded at `SCORE_MULTIPLE(4) × --max`** by co-mention, with **organism filtered first** (cheap batched esummary) before the 2-call scoring — replaces the manual `--cand-pool`. Co-mention prefilter doubles as an artifact cut.
+- **Preflight** (entity `count` → scan-time estimate → `--scan`/`--organism` confirmation) before running; **pre-filter sidecar** `genes_all_scored.tsv` for data-driven cutoffs; **two-axis read** (`spec_adj` × `co_papers`) to surface pleiotropic hub genes the specificity cut buries.
+- **Fixed user-facing output blocks** per checkpoint (SKILL.md) for run-to-run consistency.
+- Validated by an external Codex adversarial pass (Design C meta rule): 2 FATAL found (empty-slug collapse, `--resolve` malformed-JSON crash) → fixed → 0 FATAL remaining.
+
 ## Open (non-fatal, absorbed by human escalation)
 
 - Ranking quality of the default top MeSH concept.
@@ -202,10 +237,10 @@ mandate replacing it. (This has since been implemented — see the scripts and R
 
 - `fetch_genes.py` specificity + ranking — **top priority**: drop string specificity + raw-ratio sort → PubTator entity co-occurrence
   (Design C) + denominator floor + lower-bound sort (Design D). Numerator/denominator on the same corpus.
-- `fetch_genes.py` keyword injection — expansion term set applied symmetrically to both sides, unified basis (PubTator concept co-occurrence).
+- `fetch_genes.py` keyword injection — **concept entity (`--entity`) applied symmetrically to both sides** (Design F; replaced the OR-expanded synonym set), unified basis (PubTator concept co-occurrence).
 - confidence label dropped, raw fields exposed.
 - Representative PMIDs — from the entity-grounded query only.
 - Numerator computation — require same-passage co-occurrence or down-weight large gene-list papers.
-- `SKILL.md` Phase 1 — "confirm query" gate + AI concept resolution/cross-check + synonym verbatim assert.
+- `SKILL.md` Phase 1 — "confirm query" gate + AI concept resolution/cross-check + objective entity resolution (`--resolve`, replaced synonym verbatim assert).
   The AI audit is **limited to lexical disambiguation of common-word / short symbols** (not a relevance gate). Invariant: the AI never names a gene.
 - Retraction filter (separate discussion) — exclude/mark `Retracted Publication` via the efetch publication-type tag.

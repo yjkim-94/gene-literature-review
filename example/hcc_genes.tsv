@@ -1,6 +1,0 @@
-symbol	gene_id	name	co_papers	gene_papers	specificity	spec_lower	below_floor	evidence_pmids
-AFP	174	alpha fetoprotein	32205	60200	0.535	0.531	false	36998452;35002508;35110946
-FOXM1	2305	forkhead box M1	3091	9977	0.3098	0.3008	false	38001498;40186059;34988213
-YAP1	10413	Yes1 associated transcriptional regulator	6632	26280	0.2524	0.2471	false	35311132;37041150;34659531
-FASN	2194	fatty acid synthase	3267	13242	0.2467	0.2394	false	36604718;40186059;41315248
-BIRC5	332	baculoviral IAP repeat containing 5	1334	5437	0.2454	0.2341	false	34112092;38283837;37679418

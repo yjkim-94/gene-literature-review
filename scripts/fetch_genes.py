@@ -14,15 +14,31 @@ symbol like CAT is the catalase entity, never the word "cat". Ranking uses the
 Wilson lower bound of that proportion so a high ratio from a handful of papers
 can't outrank a real core gene backed by hundreds. See DESIGN.md (설계 C/D).
 
+The KEYWORD side can also be an entity: pass --entity @DISEASE_MESH:<id> (from
+the query gate's MeSH resolution) and both discovery and the co-occurrence
+numerator use the disease ENTITY, which unions the concept's surface synonyms
+("atopic eczema", "infantile eczema") in one exact call -- grouping-less OR of
+those synonyms collapses the PubTator parser (measured). Without --entity it
+falls back to free-text --keyword (novel terms with no MeSH, e.g. cuproptosis).
+
 Writes a tab-separated table (symbol, gene_id, name, co_papers, gene_papers,
-specificity, spec_lower, below_floor, evidence_pmids) to --out -- opens cleanly
-in Excel. evidence_pmids is ";"-joined.
+specificity, spec_adj, below_floor, evidence_pmids) to --out -- opens cleanly
+in Excel. evidence_pmids is ";"-joined. A sidecar <out>_all_scored.tsv holds
+every scored candidate BEFORE the min_co/min_specificity filter, so the cutoff
+can be set from the real spec_adj distribution instead of guessed.
+
+--out defaults to output/<keyword-slug>/genes.tsv, a per-keyword run dir that
+holds every artifact of the run (genes.tsv, genes_all_scored.tsv, lit/,
+gene_literature_review.md). Separate keywords never overwrite each other, and
+downstream steps locate their inputs/outputs by that dir -- no re-derived slug.
 """
 import argparse
 import collections
 import csv
+import hashlib
 import json
 import os
+import re
 import sys
 import time
 import urllib.parse
@@ -33,14 +49,38 @@ EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 
 ORGANISM_TAX = {"human": "Homo sapiens", "mouse": "Mus musculus", "rat": "Rattus norvegicus"}
 
+# Score up to this many organism-matching candidates per requested gene. Scoring
+# is the dominant cost (2 PubTator calls each), so we cap it at a multiple of
+# --max rather than the whole scan: filters + organism drop candidates, so we
+# must attempt more than --max to end up with --max. ponytail: 4x is a heuristic;
+# raise if runs routinely return fewer than --max after filtering.
+SCORE_MULTIPLE = 4
+
+
+def slug(keyword):
+    """Keyword -> filesystem run-dir name: lowercase kebab-case, alnum only.
+
+    Single source of truth for the run directory. Every downstream artifact
+    (lit/, gene_literature_review.md) sits inside this dir, so the slug rule
+    lives here only -- other steps derive their paths by directory locality.
+
+    A non-ASCII / all-symbol keyword ("아토피", "!!!") strips to "" -- which would
+    collapse the path to output/genes.tsv and silently overwrite every such run.
+    Fall back to a short stable hash so distinct keywords still get distinct dirs.
+    """
+    s = re.sub(r"[^a-z0-9]+", "-", keyword.lower()).strip("-")
+    return s or "kw-" + hashlib.md5(keyword.encode("utf-8")).hexdigest()[:8]
+
 
 def _get(url):
-    for _ in range(3):
+    # 6 tries with growing backoff: a single transient blip on the first call
+    # otherwise throws away hundreds of already-scored candidates.
+    for attempt in range(6):
         try:
             with urllib.request.urlopen(url, timeout=90) as r:
                 return r.read().decode()
         except Exception:
-            time.sleep(1.5)
+            time.sleep(1.5 * (attempt + 1))
     raise SystemExit(f"network failure: {url}")
 
 
@@ -49,9 +89,46 @@ def _key():
     return f"&api_key={k}" if k else ""
 
 
-def rank_gene_ids(keyword, scan_papers):
-    """Return GeneIDs ranked by mention frequency across the keyword's papers."""
-    q = urllib.parse.quote(keyword)
+def search_text(keyword, entity):
+    """PubTator search term for discovery/scan. When the keyword resolves to a
+    concept ENTITY (e.g. @DISEASE_MESH:D003876), search that -- it unions all
+    surface synonyms ("atopic eczema", "infantile eczema", ...) that free-text
+    can't (grouping-less OR collapses the query; measured). Free-text keyword is
+    the fallback for novel terms with no MeSH entity (cuproptosis, etc.)."""
+    return f'"{entity}"' if entity else keyword
+
+
+def co_query(gid, keyword, entity):
+    """Co-occurrence numerator query for a gene. The entity form
+    `"@GENE_<id>" AND "@DISEASE_MESH:<id>"` (each token quoted -- unquoted the
+    colon 400s) counts papers where the gene entity co-occurs with the disease
+    ENTITY, so synonym papers are included in one exact call. Free-text is the
+    fallback when no entity was resolved."""
+    return f'"@GENE_{gid}" AND "{entity}"' if entity else f"@GENE_{gid} AND {keyword}"
+
+
+def entity_candidates(keyword, top=6):
+    """PubTator concept-entity candidates for a keyword -- objective resolution,
+    not an AI guess. Each: {token, biotype, db_id, name}; `token` is PubTator's
+    own entity id (e.g. @DISEASE_Dermatitis_Atopic), usable verbatim as --entity.
+    Empty list means no entity (novel term like cuproptosis) -> free-text
+    fallback. Lets the query gate pick the concept by evidence, not by dominant-
+    sense bias (the subjective-canonical hazard this replaces)."""
+    u = f"{PUBTATOR}/entity/autocomplete/?query={urllib.parse.quote(keyword)}"
+    try:
+        data = json.loads(_get(u))
+    except ValueError:
+        return []  # empty/malformed body -> treat as no candidates (free-text fallback)
+    if not isinstance(data, list):
+        return []
+    return [{"token": c["_id"], "biotype": c.get("biotype", ""),
+             "db_id": c.get("db_id", ""), "name": c.get("name", "")}
+            for c in data[:top] if isinstance(c, dict) and c.get("_id")]
+
+
+def rank_gene_ids(search_term, scan_papers):
+    """Return GeneIDs ranked by mention frequency across the concept's papers."""
+    q = urllib.parse.quote(search_term)
     pmids = []
     page = 1
     while len(pmids) < scan_papers:
@@ -119,11 +196,38 @@ def rank_and_floor(rows, min_gene_papers):
     """
     for r in rows:
         r["below_floor"] = r["gene_papers"] < min_gene_papers
-    rows.sort(key=lambda r: (not r["below_floor"], r["spec_lower"]), reverse=True)
+    rows.sort(key=lambda r: (not r["below_floor"], r["spec_adj"]), reverse=True)
     return rows
 
 
-def resolve_human(cnt, keyword, organism, max_genes, cand_pool, min_spec, min_co, min_gene_papers):
+def pick_candidates(cnt, want, pool):
+    """Walk candidates in co-mention order, keep organism-matching ones up to pool.
+
+    esummary (symbol + organism) is cheap and batched (1 call / 100 ids), so we
+    filter to the requested organism HERE -- before the expensive per-candidate
+    PubTator scoring -- and never waste 2 calls on a non-organism gene. Returns
+    (gid, esummary record) pairs in co-mention order, at most `pool` of them.
+    """
+    cands = [g for g, _ in cnt.most_common()]
+    picked = []
+    for i in range(0, len(cands), 100):
+        batch = cands[i:i + 100]
+        ids = ",".join(batch)
+        su = json.loads(_get(f"{EUTILS}/esummary.fcgi?db=gene&id={ids}&retmode=json{_key()}"))["result"]
+        for gid in batch:
+            rec = su.get(gid)
+            if not rec or rec.get("organism", {}).get("scientificname") != want:
+                continue
+            if not rec.get("name"):
+                continue
+            picked.append((gid, rec))
+            if len(picked) >= pool:
+                return picked
+        time.sleep(0.34)
+    return picked
+
+
+def resolve_human(cnt, keyword, entity, organism, max_genes, min_spec, min_co, min_gene_papers):
     """Rank candidate genes by keyword-specificity on a PubTator entity basis.
 
     Specificity is (papers where the gene ENTITY co-occurs with the keyword) /
@@ -134,46 +238,40 @@ def resolve_human(cnt, keyword, organism, max_genes, cand_pool, min_spec, min_co
     that proportion with a keyword-relative paper-count floor (min_spec applies
     to the lower bound, min_co guards degenerate tiny counts). See DESIGN.md
     (설계 C/D/E).
+
+    Only the top SCORE_MULTIPLE * max_genes organism-matching candidates (by
+    co-mention) are scored -- the co-mention prefilter both bounds the dominant
+    cost and drops the long tail of one-off NER mistags before scoring.
     """
     want = ORGANISM_TAX.get(organism.lower(), organism)
-    # top candidates by PubTator co-mention -> resolve to human symbols
-    cands = [g for g, _ in cnt.most_common(cand_pool)]
-    scored = {}
-    for i in range(0, len(cands), 100):
-        ids = ",".join(cands[i:i + 100])
-        su = json.loads(_get(f"{EUTILS}/esummary.fcgi?db=gene&id={ids}&retmode=json{_key()}"))["result"]
-        for gid in su.get("uids", []):
-            scored[gid] = su[gid]
-        time.sleep(0.34)
+    picked = pick_candidates(cnt, want, SCORE_MULTIPLE * max_genes)
 
     rows = []
-    for i, gid in enumerate(cands):
-        rec = scored.get(gid)
-        if not rec or rec.get("organism", {}).get("scientificname") != want:
-            continue
+    all_scored = []  # every scored candidate, pre-filter, for the cutoff sidecar
+    for i, (gid, rec) in enumerate(picked):
         sym = rec.get("name", "")
-        if not sym:
-            continue
-        print(f"specificity [{i + 1}/{len(cands)}]: {sym}", file=sys.stderr)
+        print(f"specificity [{i + 1}/{len(picked)}]: {sym}", file=sys.stderr)
         total, _ = _pubtator_count(f"@GENE_{gid}")
         time.sleep(0.34)
         if total == 0:
             continue
-        co, evidence_pmids = _pubtator_count(f"@GENE_{gid} AND {keyword}")
+        co, evidence_pmids = _pubtator_count(co_query(gid, keyword, entity))
         time.sleep(0.34)
         spec = co / total
         lower = wilson_lower(co, total)
+        row = {"symbol": sym, "gene_id": gid, "name": rec.get("description", ""),
+               "co_papers": co, "gene_papers": total,
+               "specificity": round(spec, 4), "spec_adj": round(lower, 4),
+               "evidence_pmids": evidence_pmids}
+        all_scored.append(row)
         if co < min_co or lower < min_spec:
             continue
-        rows.append({"symbol": sym, "gene_id": gid, "name": rec.get("description", ""),
-                     "co_papers": co, "gene_papers": total,
-                     "specificity": round(spec, 4), "spec_lower": round(lower, 4),
-                     "evidence_pmids": evidence_pmids})
-    return rank_and_floor(rows, min_gene_papers)[:max_genes]
+        rows.append(row)
+    return rank_and_floor(rows, min_gene_papers)[:max_genes], rank_and_floor(all_scored, min_gene_papers)
 
 
 TSV_COLS = ["symbol", "gene_id", "name", "co_papers", "gene_papers",
-            "specificity", "spec_lower", "below_floor", "evidence_pmids"]
+            "specificity", "spec_adj", "below_floor", "evidence_pmids"]
 
 
 def write_tsv(path, genes):
@@ -182,39 +280,72 @@ def write_tsv(path, genes):
         w.writerow(TSV_COLS)
         for g in genes:
             w.writerow([g["symbol"], g["gene_id"], g["name"], g["co_papers"],
-                        g["gene_papers"], g["specificity"], g["spec_lower"],
+                        g["gene_papers"], g["specificity"], g["spec_adj"],
                         str(g["below_floor"]).lower(), ";".join(g["evidence_pmids"])])
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--keyword", required=True)
+    ap.add_argument("--keyword", required=True,
+                    help="human-readable concept term; used for the run-dir slug and as "
+                         "free-text fallback when --entity is absent")
+    ap.add_argument("--entity", default="",
+                    help="PubTator concept entity token, e.g. @DISEASE_MESH:D003876 "
+                         "(from the MeSH resolution in the query gate). Unions all surface "
+                         "synonyms. Omit for novel terms with no MeSH entity.")
     ap.add_argument("--organism", default="human")
-    ap.add_argument("--max", type=int, default=20)
+    ap.add_argument("--max", type=int, default=20,
+                    help="target gene count; also caps scoring at 4x this (SCORE_MULTIPLE)")
     ap.add_argument("--scan", type=int, default=60,
                     help="how many keyword papers to scan for candidate genes")
-    ap.add_argument("--cand-pool", type=int, default=40,
-                    help="how many top candidates to score for specificity")
     ap.add_argument("--min-specificity", type=float, default=0.05,
                     help="drop genes whose specificity LOWER BOUND is below this")
     ap.add_argument("--min-co", type=int, default=5,
                     help="require at least this many keyword+gene co-occurrence papers")
     ap.add_argument("--min-gene-papers", type=int, default=10,
                     help="demote genes with fewer than this many total papers (artifact floor)")
-    ap.add_argument("--out", required=True)
+    ap.add_argument("--out", help="output TSV path; default output/<keyword-slug>/genes.tsv")
+    ap.add_argument("--resolve", action="store_true",
+                    help="resolve --keyword to PubTator concept-entity candidates "
+                         "(token, biotype, paper count) and exit -- pick one and pass it as --entity")
     args = ap.parse_args()
 
-    cnt = rank_gene_ids(args.keyword, args.scan)
+    # --resolve: objective entity lookup for the query gate, then stop. Prints
+    # candidates with their PubTator paper count so the concept is chosen by
+    # evidence volume, not by the AI's dominant-sense guess.
+    if args.resolve:
+        cands = entity_candidates(args.keyword)
+        if not cands:
+            print(f"no PubTator entity for '{args.keyword}' -- novel term; "
+                  f"run without --entity (free-text fallback)", file=sys.stderr)
+        print("token\tbiotype\tcount\tname")
+        for c in cands:
+            n, _ = _pubtator_count(f'"{c["token"]}"')
+            time.sleep(0.34)
+            print(f"{c['token']}\t{c['biotype']}\t{n}\t{c['name']}")
+        return
+
+    # Run-dir is derived from the keyword so separate keywords never collide and
+    # every artifact of one run lives together. --out still overrides if given.
+    out = args.out or os.path.join("output", slug(args.keyword), "genes.tsv")
+
+    cnt = rank_gene_ids(search_text(args.keyword, args.entity), args.scan)
     if not cnt:
         print("no genes found for keyword", file=sys.stderr)
-    genes = resolve_human(cnt, args.keyword, args.organism, args.max,
-                          args.cand_pool, args.min_specificity, args.min_co,
-                          args.min_gene_papers)
-    os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
-    write_tsv(args.out, genes)
-    print(f"{len(genes)} genes -> {args.out}", file=sys.stderr)
+    genes, all_scored = resolve_human(cnt, args.keyword, args.entity, args.organism, args.max,
+                                      args.min_specificity, args.min_co,
+                                      args.min_gene_papers)
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+    write_tsv(out, genes)
+    # sidecar dump of every scored candidate (pre-filter) so the spec_adj
+    # distribution is visible and the cutoff can be set from data, not guessed.
+    root, ext = os.path.splitext(out)
+    all_path = f"{root}_all_scored{ext or '.tsv'}"
+    write_tsv(all_path, all_scored)
+    print(f"{len(genes)} genes -> {out}", file=sys.stderr)
+    print(f"{len(all_scored)} scored (pre-filter) -> {all_path}", file=sys.stderr)
     for g in genes:
-        print(f"  {g['symbol']} (spec={g['specificity']}, lower={g['spec_lower']}, "
+        print(f"  {g['symbol']} (spec={g['specificity']}, adj={g['spec_adj']}, "
               f"co={g['co_papers']}/{g['gene_papers']}): {g['name']}", file=sys.stderr)
 
 

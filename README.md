@@ -16,11 +16,18 @@ gene-literature-review/
 │   ├── fetch_genes.py      keyword → gene list (entity-grounded specificity ranking)
 │   ├── fetch_pubmed.py     per-gene abstracts → files, PMC access-level labels
 │   └── test_fetch_genes.py ranking-logic self-check
-├── evals/                  gene-list recall gold set + automatic measurement
-└── example/                atopy run example outputs (TSV + Markdown)
+└── evals/                  gene-list recall gold set + automatic measurement
 ```
 
-Run: `cd gene-literature-review && python scripts/fetch_genes.py --keyword "<keyword>" --max 20 --out output/genes.tsv` (tab-separated TSV — opens directly in Excel)
+Run:
+```bash
+cd gene-literature-review
+# 1. resolve the keyword to a PubTator concept entity (pick one by paper count)
+python scripts/fetch_genes.py --keyword "atopic dermatitis" --resolve
+# 2. rank genes; writes output/<slug>/genes.tsv (+ genes_all_scored.tsv)
+python scripts/fetch_genes.py --keyword "atopic dermatitis" --entity "@DISEASE_Dermatitis_Atopic" --max 20
+```
+Output is a tab-separated TSV (opens directly in Excel). `--entity` is optional — omit it for novel terms with no MeSH entity (free-text fallback). `--out` overrides the default run-dir path.
 
 ### Output columns (`genes.tsv`)
 
@@ -29,14 +36,16 @@ Run: `cd gene-literature-review && python scripts/fetch_genes.py --keyword "<key
 | `symbol` | Gene symbol (from PubTator NER → NCBI esummary). |
 | `gene_id` | NCBI Gene ID. |
 | `name` | Full gene name. |
-| `co_papers` | Papers where the gene entity co-occurs with the keyword (specificity numerator). |
+| `co_papers` | Papers where the gene entity co-occurs with the keyword/concept entity (specificity numerator). |
 | `gene_papers` | Total papers with the gene entity, keyword or not (specificity denominator). |
 | `specificity` | `co_papers / gene_papers` — how keyword-exclusive the gene is (1 = studied only in this keyword's context, ~0 = ubiquitous passenger). |
-| `spec_lower` | Wilson lower bound of `specificity` — shrinks thinly-supported genes so a 3/3 ratio can't beat a core gene backed by hundreds. **This is the sort key.** |
+| `spec_adj` | Confidence-adjusted `specificity` (Wilson lower bound) — shrinks thinly-supported genes so a 3/3 ratio can't beat a core gene backed by hundreds. **This is the sort key.** |
 | `below_floor` | `true` if `gene_papers` < `--min-gene-papers` (default 10): too little evidence, demoted to the bottom (not deleted). |
 | `evidence_pmids` | Up to 3 representative PMIDs from the entity co-occurrence query (`;`-joined) — real, verifiable evidence, never fabricated. |
 
-Rows are sorted by `spec_lower` descending.
+Rows are sorted by `spec_adj` descending.
+
+The script also writes a sidecar `genes_all_scored.tsv` (same columns) holding **every scored candidate before the `min_co`/`min_specificity` filter**, so the `spec_adj` cutoff can be judged against the full distribution instead of guessed.
 
 ## Core design (why it works this way)
 
@@ -55,7 +64,7 @@ Defended in three layers.
 The key is that the passenger filter is **statistics, not AI**. Passengers have real co-abstracts, so a grounded AI answers "related" and can't discriminate core from passenger. The AI audit's only real role is **lexical disambiguation of common-word / short symbols** ("is CAT catalase or the animal here?").
 
 ### 3. Keyword expansion (search problem)
-"아토피" (Korean) returns 0 hits in PubTator, and "atopy" misses the dominant term "atopic dermatitis," collapsing recall. → **Resolve the keyword to a MeSH concept, expand to its entry terms**, assert each expansion term is a verbatim member of the fetched list (blocks AI-guessed synonyms like "AD"→Alzheimer), and require human confirmation for ambiguous / short keywords. Novel terms with no MeSH (cuproptosis) proceed literal.
+"아토피" (Korean) returns 0 hits in PubTator, and "atopy" misses the dominant term "atopic dermatitis," collapsing recall. → **Resolve the keyword to a PubTator concept entity** and pass it as `--entity` (e.g. `@DISEASE_Dermatitis_Atopic`). The specificity query becomes `"@GENE_<id>" AND "<entity>"`, which **unions the concept's surface synonyms** ("atopic eczema", "infantile eczema" → one disease entity) in a single exact call. **Not OR-expansion**: a grouping-less synonym OR collapses the PubTator parser (measured: `atopic dermatitis OR atopic eczema` → 20,466, *below* the single term's 66,111), and free-text synonyms are not auto-normalized. `python scripts/fetch_genes.py --keyword "<kw>" --resolve` lists the candidate entities with their paper counts so the concept is chosen by evidence, not by an AI's dominant-sense guess (blocks "AD"→Alzheimer mis-mapping); ambiguous / short keywords still require human confirmation. Novel terms with no MeSH entity (cuproptosis) omit `--entity` and proceed literal (free-text).
 
 ### 4. Token efficiency
 Putting gene × paper × abstract into context makes cost grow quadratically. → **A script writes abstract text to files**, never loading it into the main context. With many genes, subagents fan out to burn tokens in their own contexts.
@@ -64,7 +73,7 @@ Putting gene × paper × abstract into context makes cost grow quadratically. �
 
 - **Ranking logic**: `python scripts/test_fetch_genes.py` — floor + Wilson lower bound demote artifacts and keep specific core genes on top.
 - **Entity-grounded specificity (live)**: cuproptosis → FDX1(0.64) > DLAT > SLC31A1 > PDHA1, passengers (CD274/CDKN2A/PDCD1) all filtered out.
-- **atopy (subagent, `example/`)**: FLG (filaggrin, the top atopic-dermatitis susceptibility gene) ranks 2nd, IL31/IL13/STAT6/JAK1 etc. are real AD genes, zero hub/passenger contamination.
+- **atopic dermatitis (entity `@DISEASE_Dermatitis_Atopic`)**: FLG (filaggrin, the top AD susceptibility gene), TSLP, IL31/IL13/STAT6/JAK1 etc. are real AD genes, zero hub/passenger contamination.
 - **gene-list recall (evals)**: `python evals/run_eval.py`, mean recall@20 = 0.83.
 
 ## Not implemented (known gaps)

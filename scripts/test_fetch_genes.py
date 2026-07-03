@@ -7,12 +7,14 @@ Note: the lower bound ALONE is insufficient (3/3 -> ~0.44 > 140/400 -> ~0.31);
 the relative floor is what actually demotes the artifact. Both are tested here.
 Run: python scripts/test_fetch_genes.py
 """
-from fetch_genes import wilson_lower, rank_and_floor
+import json as _json
+import fetch_genes
+from fetch_genes import wilson_lower, rank_and_floor, search_text, co_query, entity_candidates, slug
 
 
 def _row(sym, co, total):
     return {"symbol": sym, "co_papers": co, "gene_papers": total,
-            "spec_lower": round(wilson_lower(co, total), 4)}
+            "spec_adj": round(wilson_lower(co, total), 4)}
 
 
 def test_tiny_n_artifact_ranks_below_core_gene():
@@ -40,6 +42,44 @@ def test_below_floor_genes_kept_not_deleted():
     assert len(ranked) == 2  # demoted, not dropped
 
 
+def test_entity_query_quotes_both_tokens_freetext_fallback():
+    # entity present -> both tokens quoted (unquoted colon 400s on PubTator)
+    assert co_query("2312", "atopic dermatitis", "@DISEASE_MESH:D003876") == \
+        '"@GENE_2312" AND "@DISEASE_MESH:D003876"'
+    assert search_text("atopic dermatitis", "@DISEASE_MESH:D003876") == '"@DISEASE_MESH:D003876"'
+    # no entity -> free-text fallback, unquoted (novel terms with no MeSH)
+    assert co_query("2312", "cuproptosis", "") == "@GENE_2312 AND cuproptosis"
+    assert search_text("cuproptosis", "") == "cuproptosis"
+
+
+def test_entity_candidates_parse_and_novel_fallback():
+    # real term -> tokens extracted verbatim; novel term -> empty (free-text fallback)
+    fetch_genes._get = lambda u: _json.dumps([
+        {"_id": "@DISEASE_Dermatitis_Atopic", "biotype": "disease", "db_id": "D003876", "name": "Dermatitis Atopic"},
+        {"_id": "@DISEASE_Dermatitis_Atopic_1", "biotype": "disease", "db_id": "C566404", "name": "Dermatitis Atopic 1"},
+    ])
+    cands = entity_candidates("atopic dermatitis")
+    assert cands[0]["token"] == "@DISEASE_Dermatitis_Atopic", cands
+    assert cands[0]["biotype"] == "disease"
+    fetch_genes._get = lambda u: "[]"
+    assert entity_candidates("cuproptosis") == []
+    # empty / malformed body must not crash -> treated as no candidates
+    fetch_genes._get = lambda u: ""
+    assert entity_candidates("weird") == []
+    fetch_genes._get = lambda u: '{"unexpected": "shape"}'
+    assert entity_candidates("weird") == []
+
+
+def test_slug_never_empty_and_isolates_non_ascii():
+    # ascii -> readable kebab
+    assert slug("Atopic Dermatitis") == "atopic-dermatitis"
+    # non-ascii / all-symbol strips to "" -> must fall back, never empty
+    assert slug("아토피") != ""
+    assert slug("!!!") != ""
+    # distinct non-ascii keywords must not collide on the same run dir
+    assert slug("아토피") != slug("천식")
+
+
 def test_wilson_lower_bounds_and_degenerate():
     assert wilson_lower(0, 0) == 0.0
     assert 0.0 <= wilson_lower(1, 5) <= 1.0
@@ -51,5 +91,8 @@ if __name__ == "__main__":
     test_tiny_n_artifact_ranks_below_core_gene()
     test_specific_but_less_studied_core_gene_stays_on_top()
     test_below_floor_genes_kept_not_deleted()
+    test_entity_query_quotes_both_tokens_freetext_fallback()
+    test_entity_candidates_parse_and_novel_fallback()
+    test_slug_never_empty_and_isolates_non_ascii()
     test_wilson_lower_bounds_and_degenerate()
     print("ok: floor + wilson_lower demote tiny-n artifacts, keep specific core genes on top")

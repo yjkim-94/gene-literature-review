@@ -20,8 +20,15 @@ EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 
 
 def _get(url):
-    with urllib.request.urlopen(url, timeout=60) as r:
-        return r.read().decode()
+    # 6 tries with growing backoff: a transient blip shouldn't lose a gene's
+    # whole abstract fetch (matches fetch_genes.py's retry policy).
+    for attempt in range(6):
+        try:
+            with urllib.request.urlopen(url, timeout=60) as r:
+                return r.read().decode()
+        except Exception:
+            time.sleep(1.5 * (attempt + 1))
+    raise SystemExit(f"network failure: {url}")
 
 
 def _key():
@@ -72,12 +79,16 @@ def main():
     ap.add_argument("--genes", required=True, help="genes.tsv from fetch_genes.py")
     ap.add_argument("--keyword", default="", help="omit for general gene literature (user-provided list)")
     ap.add_argument("--per-gene", type=int, default=5)
-    ap.add_argument("--out-dir", required=True)
+    ap.add_argument("--out-dir", help="default: lit/ next to --genes (same run dir)")
     args = ap.parse_args()
+
+    # Default the output beside genes.tsv so the run dir stays self-contained
+    # and the slug (owned by fetch_genes.py) is never re-derived here.
+    out_dir = args.out_dir or os.path.join(os.path.dirname(args.genes) or ".", "lit")
 
     with open(args.genes, encoding="utf-8", newline="") as f:
         genes = list(csv.DictReader(f, delimiter="\t"))
-    os.makedirs(args.out_dir, exist_ok=True)
+    os.makedirs(out_dir, exist_ok=True)
 
     for g in genes:
         sym = g["symbol"]
@@ -85,7 +96,7 @@ def main():
         _sleep()
         recs = fetch_abstracts(pmids)
         _sleep()
-        out = os.path.join(args.out_dir, f"{sym}.json")
+        out = os.path.join(out_dir, f"{sym}.json")
         with open(out, "w", encoding="utf-8") as f:
             json.dump({"symbol": sym, "name": g.get("name", ""), "papers": recs},
                       f, ensure_ascii=False, indent=2)
