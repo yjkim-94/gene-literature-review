@@ -1,0 +1,476 @@
+<title>gene-literature-review — 동작 원리</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css">
+<style>
+  :root{
+    --ink:#0a1413; --ink2:#0e1c1a; --panel:#102523; --panel2:#143230;
+    --line:#20423e; --line2:#2c5a54;
+    --sig:#3fe0c9; --sig-dim:#1d8577; --sig-glow:rgba(63,224,201,.35);
+    --warn:#ff6a52; --warn-dim:#7d2e26; --warn-glow:rgba(255,106,82,.30);
+    --amber:#f2b03c;
+    --txt:#e2f1ee; --mut:#7fa39d; --mut2:#5c807a;
+    --mono:ui-monospace,"Cascadia Code","JetBrains Mono","SF Mono",Menlo,Consolas,monospace;
+    --sans:"Pretendard Variable",Pretendard,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:
+      radial-gradient(1200px 600px at 80% -10%, #0f2422 0%, transparent 60%),
+      radial-gradient(900px 500px at 0% 110%, #10201c 0%, transparent 55%),
+      var(--ink);
+    color:var(--txt); font-family:var(--sans);
+    -webkit-font-smoothing:antialiased; line-height:1.5;
+    min-height:100vh;
+  }
+  .wrap{max-width:1080px; margin:0 auto; padding:28px 22px 40px}
+
+  /* ---- header ---- */
+  header{display:flex; flex-wrap:wrap; align-items:baseline; gap:8px 16px; border-bottom:1px solid var(--line); padding-bottom:18px}
+  .brand{font-family:var(--mono); font-size:13px; letter-spacing:.02em; color:var(--sig); display:flex; align-items:center; gap:9px}
+  .brand .dot{width:8px;height:8px;border-radius:50%;background:var(--sig);box-shadow:0 0 12px var(--sig-glow);animation:pulse 2.4s ease-in-out infinite}
+  @keyframes pulse{50%{opacity:.35}}
+  h1{font-size:clamp(24px,4.4vw,40px); line-height:1.08; margin:10px 0 0; font-weight:760; letter-spacing:-.02em; flex-basis:100%}
+  h1 .m{font-family:var(--mono); font-weight:600; color:var(--sig)}
+  .thesis{flex-basis:100%; color:var(--mut); max-width:60ch; margin-top:8px; font-size:15px}
+  .thesis b{color:var(--txt); font-weight:600}
+
+  /* ---- stepper ---- */
+  .stepper{display:flex; gap:6px; margin:22px 0 14px; flex-wrap:wrap}
+  .step{flex:1 1 0; min-width:120px; text-align:left; background:transparent; border:0; padding:0; cursor:pointer; color:inherit; font:inherit}
+  .step .bar{height:3px; border-radius:2px; background:var(--line); overflow:hidden; position:relative}
+  .step .bar i{position:absolute; inset:0; width:0; background:linear-gradient(90deg,var(--sig-dim),var(--sig)); box-shadow:0 0 10px var(--sig-glow)}
+  .step.done .bar i{width:100%}
+  .step.active .bar i{width:var(--p,0%); transition:width .25s linear}
+  .step .lab{display:flex; gap:8px; align-items:baseline; margin-top:8px}
+  .step .n{font-family:var(--mono); font-size:12px; color:var(--mut2)}
+  .step .t{font-size:12.5px; color:var(--mut); letter-spacing:.01em}
+  .step.active .n{color:var(--sig)} .step.active .t{color:var(--txt)}
+
+  /* ---- stage viewport ---- */
+  .stage{position:relative; border:1px solid var(--line); border-radius:14px;
+    background:linear-gradient(180deg,var(--ink2),var(--ink)); min-height:430px; overflow:hidden}
+  .scene{position:absolute; inset:0; padding:26px 26px; opacity:0; transform:translateY(10px); pointer-events:none;
+    transition:opacity .45s ease, transform .45s ease; display:flex; flex-direction:column}
+  .scene.on{opacity:1; transform:none; pointer-events:auto}
+  .scene h2{margin:0; font-size:13px; font-family:var(--mono); color:var(--sig); letter-spacing:.06em; text-transform:uppercase; display:flex; align-items:center; gap:10px}
+  .scene h2 .idx{color:var(--mut2)}
+  .scene .sub{color:var(--mut); font-size:14px; margin:7px 0 0; max-width:64ch}
+  .scene .sub b{color:var(--txt); font-weight:600}
+  .body{flex:1; display:flex; align-items:center; margin-top:6px}
+
+  .chip{font-family:var(--mono); font-size:13px; padding:5px 10px; border-radius:7px; border:1px solid var(--line2); background:var(--panel); white-space:nowrap}
+  .chip.sig{border-color:var(--sig-dim); color:var(--sig); box-shadow:0 0 0 1px rgba(63,224,201,.06) inset}
+  .chip.warn{border-color:var(--warn-dim); color:var(--warn)}
+  .arrow{color:var(--mut2); font-family:var(--mono)}
+  .note{border:1px solid var(--line); border-radius:9px; padding:11px 13px; background:rgba(255,255,255,.015)}
+  .note .h{font-size:12px; font-family:var(--mono); letter-spacing:.02em; margin-bottom:3px}
+  .note p{margin:0; font-size:12.5px; color:var(--mut)}
+  .ok{color:var(--sig)} .bad{color:var(--warn)} .amb{color:var(--amber)}
+
+  /* scene1 */
+  .flow{display:flex; align-items:center; gap:12px; flex-wrap:wrap}
+  .grid3{display:grid; grid-template-columns:repeat(3,1fr); gap:12px; width:100%; margin-top:20px}
+  .stagger>*{opacity:0; transform:translateY(8px)}
+  .scene.on .stagger>*{animation:rise .5s ease forwards}
+  .scene.on .stagger>*:nth-child(1){animation-delay:.15s}
+  .scene.on .stagger>*:nth-child(2){animation-delay:.30s}
+  .scene.on .stagger>*:nth-child(3){animation-delay:.45s}
+  .scene.on .stagger>*:nth-child(4){animation-delay:.60s}
+  .scene.on .stagger>*:nth-child(5){animation-delay:.75s}
+  .scene.on .stagger>*:nth-child(6){animation-delay:.90s}
+  @keyframes rise{to{opacity:1;transform:none}}
+
+  /* scene2 candidate cloud */
+  .cloud{display:flex; flex-wrap:wrap; gap:9px; width:100%; align-content:center}
+
+  /* scene3 assay: string vs entity */
+  .assay{display:grid; grid-template-columns:1fr 1fr; gap:16px; width:100%}
+  @media(max-width:680px){.assay{grid-template-columns:1fr}}
+  .col{border:1px solid var(--line); border-radius:11px; padding:15px; background:var(--panel)}
+  .col.danger{border-color:var(--warn-dim)}
+  .col.good{border-color:var(--sig-dim)}
+  .col .tag{font-family:var(--mono); font-size:11px; letter-spacing:.05em; text-transform:uppercase}
+  .col .q{font-family:var(--mono); font-size:14px; margin:8px 0 12px}
+  .papers{display:flex; flex-wrap:wrap; gap:5px; min-height:64px}
+  .pp{width:15px;height:19px;border-radius:2px;border:1px solid var(--line2);background:var(--panel2); opacity:0}
+  .scene.on .pp{animation:pop .28s ease forwards}
+  .pp.junk{border-color:var(--warn-dim); background:rgba(255,106,82,.14)}
+  .pp.real{border-color:var(--sig-dim); background:rgba(63,224,201,.14)}
+  @keyframes pop{from{opacity:0;transform:scale(.4)}to{opacity:1;transform:none}}
+  .verdict{margin-top:10px; font-size:12.5px; font-family:var(--mono)}
+
+  /* stats strip */
+  .stats{display:flex; gap:14px; flex-wrap:wrap; width:100%; margin-top:18px; align-items:stretch}
+  .stat{flex:1 1 150px; border:1px solid var(--line); border-radius:10px; padding:12px 13px; background:var(--panel)}
+  .stat .k{font-size:11px; font-family:var(--mono); color:var(--mut); letter-spacing:.03em}
+  .stat .v{font-family:var(--mono); font-size:22px; margin-top:4px; color:var(--sig)}
+  .stat .v small{font-size:12px; color:var(--mut2)}
+  .shrink{color:var(--amber)!important}
+
+  /* scene4 ranking */
+  .rank{width:100%; display:flex; flex-direction:column; gap:7px}
+  .row{display:grid; grid-template-columns:20px 92px 1fr 62px; align-items:center; gap:11px; font-family:var(--mono); font-size:13px;
+    transition:opacity .5s ease, transform .5s ease}
+  .row .g{color:var(--txt)}
+  .row .track{height:11px; border-radius:6px; background:var(--panel2); overflow:hidden}
+  .row .track i{display:block; height:100%; width:0; border-radius:6px; background:linear-gradient(90deg,var(--sig-dim),var(--sig))}
+  .scene.on .row .track i{animation:grow 1s cubic-bezier(.2,.7,.2,1) forwards; animation-delay:.3s}
+  @keyframes grow{to{width:var(--w)}}
+  .row .s{text-align:right; color:var(--sig)}
+  .row .rk{color:var(--mut2)}
+  .row.drop{opacity:.28}
+  .row.drop .g{color:var(--warn); text-decoration:line-through}
+  .row.drop .track i{background:var(--warn-dim)}
+  .row.hero .g{color:var(--sig)}
+  .row .flg{font-size:10.5px; color:var(--mut); font-family:var(--sans); margin-left:6px}
+
+  /* scene5 fanout */
+  .pipe5{display:flex; align-items:center; gap:14px; flex-wrap:wrap; width:100%; justify-content:center}
+  .files{display:flex; gap:6px}
+  .file{width:26px;height:32px;border-radius:3px;border:1px solid var(--sig-dim);background:var(--panel);position:relative}
+  .file::after{content:"";position:absolute;top:4px;left:4px;right:8px;height:2px;background:var(--sig-dim);box-shadow:0 4px 0 var(--sig-dim),0 8px 0 var(--sig-dim)}
+  .agents{display:flex; gap:10px; flex-wrap:wrap; justify-content:center}
+  .agent{border:1px solid var(--line2); border-radius:9px; padding:9px 11px; background:var(--panel); font-family:var(--mono); font-size:11.5px; text-align:center; min-width:96px}
+  .agent .sy{color:var(--sig); font-size:13px}
+  .agent .pm{color:var(--mut); font-size:10.5px; margin-top:3px}
+  .burn{font-size:10px; color:var(--amber); margin-top:4px}
+
+  /* scene6 matrix */
+  .m6{display:grid; grid-template-columns:1fr 1fr; gap:16px; width:100%}
+  @media(max-width:680px){.m6{grid-template-columns:1fr}}
+  .card{border:1px solid var(--line); border-radius:11px; padding:15px; background:var(--panel)}
+  .card h3{margin:0 0 10px; font-size:12px; font-family:var(--mono); letter-spacing:.04em; text-transform:uppercase}
+  .card.fail h3{color:var(--warn)} .card.def h3{color:var(--sig)}
+  .li{display:flex; gap:10px; padding:7px 0; border-top:1px solid var(--line); font-size:13px}
+  .li:first-of-type{border-top:0}
+  .li .ic{font-family:var(--mono); flex:none}
+  .li b{font-weight:600}
+  .li span{color:var(--mut); font-size:12px}
+  .invariant{margin-top:14px; border:1px solid var(--sig-dim); border-radius:9px; padding:11px 13px; background:rgba(63,224,201,.05); font-size:13px}
+  .invariant b{color:var(--sig); font-family:var(--mono)}
+
+  /* ---- controls ---- */
+  .controls{display:flex; align-items:center; gap:10px; margin-top:16px}
+  .controls button{font:inherit; font-size:13px; color:var(--txt); background:var(--panel); border:1px solid var(--line2); border-radius:8px; padding:8px 14px; cursor:pointer; display:flex; align-items:center; gap:7px}
+  .controls button:hover{border-color:var(--sig-dim)}
+  .controls button:focus-visible{outline:2px solid var(--sig); outline-offset:2px}
+  .controls .spacer{flex:1}
+  .controls .cnt{font-family:var(--mono); font-size:12px; color:var(--mut)}
+  .foot{margin-top:22px; color:var(--mut2); font-size:12px; font-family:var(--mono)}
+  .foot a{color:var(--sig-dim)}
+
+  /* ---- intro sections ---- */
+  .block{margin-top:36px}
+  .sec-h{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:14px; border-bottom:1px solid var(--line); padding-bottom:10px}
+  .ey{font-family:var(--mono); font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--sig-dim)}
+  .secttl{margin:0; font-size:clamp(18px,2.6vw,23px); font-weight:680; letter-spacing:-.01em}
+  .lead{color:var(--mut); max-width:66ch; margin:0 0 16px; font-size:14.5px}
+  .lead b{color:var(--txt); font-weight:600}
+
+  .io{display:grid; grid-template-columns:1fr auto 1.2fr; gap:16px; align-items:stretch}
+  @media(max-width:680px){.io{grid-template-columns:1fr}}
+  .io-card{border:1px solid var(--line); border-radius:13px; padding:18px; background:var(--panel); display:flex; flex-direction:column}
+  .io-card.out{border-color:var(--sig-dim)}
+  .io-lab{font-family:var(--mono); font-size:11px; letter-spacing:.06em; color:var(--mut); text-transform:uppercase}
+  .io-key{font-family:var(--mono); font-size:clamp(24px,4vw,32px); color:var(--warn); margin:14px 0 6px; font-weight:600}
+  .io-list{margin:12px 0 6px; display:flex; flex-direction:column; gap:7px}
+  .ioline{display:grid; grid-template-columns:70px 1fr auto; gap:10px; align-items:center; font-family:var(--mono); font-size:12.5px}
+  .ioline .g{color:var(--sig)}
+  .ioline .tr{height:8px; background:var(--panel2); border-radius:5px; overflow:hidden}
+  .ioline .tr i{display:block; height:100%; background:linear-gradient(90deg,var(--sig-dim),var(--sig)); border-radius:5px}
+  .ioline .pm{color:var(--mut2); font-size:11px}
+  .io-sub{color:var(--mut); font-size:12.5px; margin:auto 0 0; padding-top:12px}
+  .io-sub b{color:var(--txt)}
+  .io-modes{margin:12px 0 0; display:flex; flex-direction:column; gap:7px}
+  .io-modes .m{display:flex; gap:8px; font-size:12px; color:var(--mut); align-items:baseline}
+  .io-modes .m b{color:var(--txt); font-weight:600}
+  .io-modes .tagx{font-family:var(--mono); font-size:10px; color:var(--sig); border:1px solid var(--sig-dim); border-radius:4px; padding:1px 5px; flex:none}
+  .io-arrow{align-self:center; font-family:var(--mono); font-size:26px; color:var(--sig-dim)}
+  @media(max-width:680px){.io-arrow{transform:rotate(90deg); justify-self:center}}
+  .note.big{padding:15px 16px}
+  .note.big .h{font-size:13px; margin-bottom:5px}
+  .note.big p{font-size:13px}
+  .grid3.plain{margin-top:0}
+
+  @media(prefers-reduced-motion:reduce){
+    *{animation-duration:.001s!important; transition-duration:.05s!important}
+  }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="brand"><span class="dot"></span>gene-literature-review</div>
+    <h1>키워드 하나가 <span class="m">정확한 유전자 목록</span>이 되기까지</h1>
+    <p class="thesis">질병·생물학적 과정 키워드 하나로 <b>근거 논문까지 붙은 유전자 목록</b>을 만드는 스킬. 아래에서 <b>무엇을 넣고 받는지 → 왜 필요한지 → 어떻게 도는지</b> 순서로 봅니다.</p>
+  </header>
+
+  <!-- ① INPUT / OUTPUT -->
+  <section class="block">
+    <div class="sec-h"><span class="ey">한눈에</span><h2 class="secttl">무엇을 넣으면 무엇이 나오나</h2></div>
+    <div class="io">
+      <div class="io-card in">
+        <div class="io-lab">넣는 것 · INPUT</div>
+        <div class="io-key">"아토피"</div>
+        <div class="io-modes">
+          <div class="m"><span class="tagx">키워드</span><span>질병·과정·표현형 <b>단어 하나</b> → 관련 유전자 발굴</span></div>
+          <div class="m"><span class="tagx">유전자 목록</span><span>gene을 직접 주면 발굴은 건너뛰고 <b>문헌 근거만</b></span></div>
+          <div class="m"><span class="tagx">대량</span><span>"1000개" 같은 대량은 <b>목록만</b>(요약 생략)</span></div>
+        </div>
+      </div>
+      <div class="io-arrow">→</div>
+      <div class="io-card out">
+        <div class="io-lab">받는 것 · OUTPUT</div>
+        <div class="io-list">
+          <div class="ioline"><span class="g">IL31</span><span class="tr"><i style="width:100%"></i></span><span class="pm">PMID 33924978</span></div>
+          <div class="ioline"><span class="g">FLG</span><span class="tr"><i style="width:87%"></i></span><span class="pm">PMID 34408560</span></div>
+          <div class="ioline"><span class="g">MRGPRX2</span><span class="tr"><i style="width:45%"></i></span><span class="pm">PMID 36712922</span></div>
+          <div class="ioline"><span class="g">IL13</span><span class="tr"><i style="width:28%"></i></span><span class="pm">PMID 35223190</span></div>
+        </div>
+        <p class="io-sub"><b>키워드와 실제로 관련된 유전자 순위 목록</b> — <b>TSV 파일</b>(Excel에서 바로 열림)로 저장. 각 유전자마다 관련도 점수와 근거 논문 번호(PMID) 포함</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ② 배경 -->
+  <section class="block">
+    <div class="sec-h"><span class="ey">왜 필요한가</span><h2 class="secttl">순진하게 하면 왜 틀리나</h2></div>
+    <p class="lead">유전자를 문헌에서 찾는 일은 두 가지로 쉽게 망가진다. 이 스킬은 그 둘을 막도록 설계됐고, 아래 흐름의 모든 단계가 결국 이 방어를 위한 것이다.</p>
+    <div class="grid3 plain">
+      <div class="note big"><div class="h bad">① 없는 걸 지어냄</div><p>문헌 요약은 읽지도 않은 논문이나 유전자를 그럴듯하게 만들어내기 쉽다. 모든 주장에 <b>실재하는 논문 번호</b>를 강제해 막는다.</p></div>
+      <div class="note big"><div class="h bad">② 상관없는 유전자</div><p>아무 논문에나 나오는 <b>단골 유전자</b>, 흔한 영어 단어와 이름이 같은 유전자(CAT=고양이), 다른 병 유전자가 섞인다.</p></div>
+      <div class="note big"><div class="h ok">그래서</div><p>유전자를 <b>글자가 아니라 '뜻'으로</b> 다루고, 관련도를 <b>점수로</b> 재서 상관없는 유전자를 걸러낸다.</p></div>
+    </div>
+  </section>
+
+  <!-- ③ 흐름 -->
+  <section class="block">
+    <div class="sec-h"><span class="ey">동작 흐름</span><h2 class="secttl">키워드가 목록이 되기까지 · 6단계</h2></div>
+  </section>
+
+  <div class="stepper" id="stepper"></div>
+
+  <div class="stage" id="stage">
+
+    <!-- 1 -->
+    <section class="scene" data-i="0">
+      <h2><span class="idx">01</span> 검색어 준비</h2>
+      <p class="sub">사용자가 준 단어를 그대로 검색하지 않는다. <b>"아토피"</b>(한글)는 검색 결과가 0건, <b>"atopy"</b>는 논문에서 훨씬 자주 쓰는 표현 <b>atopic dermatitis</b>를 놓쳐 관련 논문 대부분을 빠뜨린다.</p>
+      <div class="body" style="flex-direction:column; align-items:flex-start; gap:0">
+        <div class="flow stagger">
+          <span class="chip warn">"아토피"</span>
+          <span class="arrow">→ MeSH 해석 →</span>
+          <span class="chip sig">atopic dermatitis</span>
+          <span class="chip">atopic eczema</span>
+          <span class="chip">neurodermatitis</span>
+        </div>
+        <div class="grid3 stagger">
+          <div class="note"><div class="h ok">빠짐없이 찾기</div><p>논문에서 실제로 쓰는 여러 표현(동의어)으로 바꿔 검색해 관련 논문을 놓치지 않는다</p></div>
+          <div class="note"><div class="h amb">표준 용어집 대조</div><p>바꾼 단어가 공식 의학 용어집에 실제 있는 표현인지 기계가 확인 — 'AD'를 엉뚱하게 알츠하이머로 넓히는 실수 차단</p></div>
+          <div class="note"><div class="h">사람이 확인</div><p>뜻이 여러 개로 갈리는 애매한 단어는 사람이 직접 고른다</p></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="scene" data-i="1">
+      <h2><span class="idx">02</span> 유전자 후보 찾기</h2>
+      <p class="sub">정해진 검색어로 논문을 훑어, 문장 속에서 <b>'유전자'로 인식된 단어</b>만 후보로 모은다(PubTator3라는 논문 색인 도구가 미리 표시해 둠). 그냥 유명한 유전자로 검색하면 어디에나 나오는 스타 유전자(TP53 등)만 잡혀서 쓰지 않는다.</p>
+      <div class="body">
+        <div class="cloud stagger" id="cloud"></div>
+      </div>
+      <p class="sub" style="margin-top:4px">후보엔 진짜 관련 유전자도, 아무 데나 등장하는 단골 유전자(<span class="amb">CD274</span>)도, 흔한 영어 단어와 이름이 같은 유전자(<span class="bad">CAT</span> = 고양이)도 섞여 들어온다 — 다음 단계가 이걸 가른다.</p>
+    </section>
+
+    <!-- 3 -->
+    <section class="scene" data-i="2">
+      <h2><span class="idx">03</span> 관련도 점수 매기기 — <span style="color:var(--txt);text-transform:none">글자 대신 '뜻'으로</span></h2>
+      <p class="sub">각 유전자가 <b>키워드에 얼마나 전용으로 붙어 다니는지</b>를 점수로 매긴다: <b>(그 유전자와 키워드가 함께 나온 논문 수) ÷ (그 유전자가 나온 전체 논문 수)</b>. 이때 이름을 <b>글자로 찾느냐, 뜻으로 찾느냐</b>가 결정적 — <b>CAT</b>으로 그 차이를 보자.</p>
+      <div class="body" style="flex-direction:column; gap:0">
+        <div class="assay">
+          <div class="col danger">
+            <div class="tag bad">글자로 검색 · "CAT"이라는 글자</div>
+            <div class="q">"CAT" 글자가 든 논문</div>
+            <div class="papers" id="junk"></div>
+            <div class="verdict bad">'cat=고양이 알레르기' 논문까지 대량으로 걸려든다 → 숫자가 부풀려져 catalase 유전자가 <b>가짜로 상위</b>에 오름 ✕</div>
+          </div>
+          <div class="col good">
+            <div class="tag ok">뜻으로 검색 · 유전자 CAT</div>
+            <div class="q">유전자 CAT이 나온 논문</div>
+            <div class="papers" id="real"></div>
+            <div class="verdict ok">'CAT'을 <b>유전자(catalase)라는 뜻</b>으로 인식 → 진짜 catalase 논문만 걸림 → 정직한 낮은 숫자 → 제대로 걸러짐 ✓</div>
+          </div>
+        </div>
+        <div class="stats">
+          <div class="stat"><div class="k">단순 비율</div><div class="v">1.00 <small>3편 중 3편</small></div></div>
+          <div class="stat"><div class="k">보수 점수 (근거 적으면 ↓)</div><div class="v shrink">0.44</div></div>
+          <div class="stat"><div class="k">논문 10편 미만 → 뒤로</div><div class="v" style="color:var(--amber)">뒤로</div></div>
+        </div>
+      </div>
+      <p class="sub" style="margin-top:14px">논문 3편 중 3편뿐인데 비율만 100%인 유전자는 <b>근거가 빈약</b>하다 → 근거가 적을수록 점수를 깎아(100→44점) 아래로 내리고, 논문이 10편도 안 되는 건 뒤로 밀되 <b>목록에서 지우지는 않는다</b>.</p>
+    </section>
+
+    <!-- 4 -->
+    <section class="scene" data-i="3">
+      <h2><span class="idx">04</span> 점수 순으로 줄 세우기</h2>
+      <p class="sub">후보를 <b>관련도 점수 순</b>으로 줄 세운다. 단골 유전자와 글자만 같던 가짜는 가라앉고, 진짜 아토피 유전자가 위로 — <b>실제 프로그램 실행 결과 그대로</b>.</p>
+      <div class="body">
+        <div class="rank" id="rank"></div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="scene" data-i="4">
+      <h2><span class="idx">05</span> 근거 논문 요약 (일 나누기)</h2>
+      <p class="sub">상위 유전자의 논문 초록은 <b>프로그램이 파일로 따로 저장</b>한다(무거운 원문을 대화창에 안 올림). 유전자마다 담당 AI 하나가 <b>자기 파일 하나만</b> 읽고, 근거 논문 번호(PMID)를 달아 요약해 돌려준다.</p>
+      <div class="body">
+        <div class="pipe5 stagger">
+          <div style="text-align:center">
+            <div class="files"><span class="file"></span><span class="file"></span><span class="file"></span></div>
+            <div class="chip" style="margin-top:8px;border:0;background:transparent;color:var(--mut)">output/lit/*.json</div>
+          </div>
+          <span class="arrow">→ 나눠 맡김 →</span>
+          <div class="agents">
+            <div class="agent"><div class="sy">IL31</div><div class="pm">[PMID:33924978]</div><div class="burn">원문은 담당만 읽음</div></div>
+            <div class="agent"><div class="sy">FLG</div><div class="pm">[PMID:34408560]</div><div class="burn">원문은 담당만 읽음</div></div>
+            <div class="agent"><div class="sy">STAT6</div><div class="pm">[PMID:38931136]</div><div class="burn">원문은 담당만 읽음</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="note big" style="margin-top:2px">
+        <div class="h ok">일 나누는 규칙</div>
+        <p>유전자 <b>10개부터</b> 나눠 맡긴다. 담당 AI 수 = <b>min(8, ⌈유전자수 ÷ 10⌉)</b> — 한 명당 ~10개씩 <b>고르게</b> 나누되 <b>최대 8명</b>. 예: 20개→2명(10/10) · 21개→3명(7/7/7) · 90개→8명. 각 담당은 가벼운 <b>Sonnet</b> 모델을 쓴다.</p>
+      </div>
+      <div class="invariant">절대 규칙 — <b>AI는 유전자 이름을 지어내지 않는다.</b> 모든 유전자 이름은 논문 색인에서만 나오고, AI는 요약·제외·헷갈리는 이름 판별만 한다. 그래서 없는 유전자가 목록에 끼어들 틈이 없다.</div>
+    </section>
+
+    <!-- 6 -->
+    <section class="scene" data-i="5">
+      <h2><span class="idx">06</span> 안전장치 — 막을 것 2가지 vs 막는 법 3가지</h2>
+      <p class="sub">단골 유전자도 '관련 논문'은 실제로 있어서 <b>AI에게 물어보면 못 거른다</b>. 그래서 상관없는 유전자를 거르는 일은 <b>계산(통계)</b>이 맡고, AI는 헷갈리는 이름 구분만 돕는다.</p>
+      <div class="body">
+        <div class="m6">
+          <div class="card fail">
+            <h3>막아야 할 실패</h3>
+            <div class="li"><span class="ic bad">✕</span><div><b>없는 걸 지어냄</b><br><span>실제로 없는 유전자·논문·연관을 만들어냄</span></div></div>
+            <div class="li"><span class="ic bad">✕</span><div><b>상관없는 유전자</b><br><span>단골 유전자 · 이름 혼동 · 다른 병 유전자가 섞임</span></div></div>
+          </div>
+          <div class="card def">
+            <h3>세 겹으로 막는 법</h3>
+            <div class="li"><span class="ic ok">1</span><div><b>뜻으로 세기</b><br><span>이름을 글자가 아니라 뜻으로 세서 CAT(고양이) 같은 혼동을 원천 차단</span></div></div>
+            <div class="li"><span class="ic ok">2</span><div><b>근거 적으면 점수 깎기</b><br><span>논문 근거가 빈약한 유전자를 위에서 끌어내림</span></div></div>
+            <div class="li"><span class="ic ok">3</span><div><b>논문 너무 적으면 뒤로</b><br><span>10편도 안 되는 건 뒤로, 진짜 핵심 유전자는 유지</span></div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <div class="controls">
+    <button id="prev" aria-label="이전 단계">‹ 이전</button>
+    <button id="play" aria-label="재생/일시정지"><span id="playi">❚❚</span> <span id="playt">일시정지</span></button>
+    <button id="nextb" aria-label="다음 단계">다음 ›</button>
+    <span class="spacer"></span>
+    <span class="cnt"><span id="cur">1</span> / 6</span>
+  </div>
+
+  <p class="foot">실제 실행 결과: cuproptosis · atopic dermatitis · 설계 근거는 <a>DESIGN.md</a></p>
+</div>
+
+<script>
+(function(){
+  var N=6, cur=0, playing=true, timer=null, t0=0, raf=null;
+  var durs=[5200,5600,8200,7000,6200,6000];
+  var titles=["검색어 준비","후보 찾기","관련도 점수","줄 세우기","근거 요약","안전장치"];
+  var scenes=[].slice.call(document.querySelectorAll('.scene'));
+  var reduce=matchMedia('(prefers-reduced-motion:reduce)').matches;
+
+  // build stepper
+  var stepper=document.getElementById('stepper');
+  titles.forEach(function(t,i){
+    var b=document.createElement('button'); b.className='step'; b.setAttribute('aria-label',(i+1)+' '+t);
+    b.innerHTML='<div class="bar"><i></i></div><div class="lab"><span class="n">0'+(i+1)+'</span><span class="t">'+t+'</span></div>';
+    b.onclick=function(){ go(i,true); };
+    stepper.appendChild(b);
+  });
+  var steps=[].slice.call(stepper.children);
+
+  // candidate cloud (scene2)
+  var cand=[['FLG',0],['IL31',0],['IL13',0],['STAT6',0],['JAK1',0],['IL22',0],['MRGPRX2',0],['IGHE',0],['TNFSF4',0],['CD274',1],['CDKN2A',1],['CAT',2]];
+  var cloud=document.getElementById('cloud');
+  cand.forEach(function(c,i){
+    var s=document.createElement('span');
+    s.className='chip '+(c[1]===2?'warn':c[1]===1?'':'');
+    if(c[1]===1) s.style.color='var(--amber)', s.style.borderColor='var(--warn-dim)';
+    s.textContent='@GENE_'+c[0];
+    cloud.appendChild(s);
+  });
+
+  // assay papers (scene3)
+  function fillPapers(el,n,cls){ el.innerHTML=''; for(var i=0;i<n;i++){var p=document.createElement('span');p.className='pp '+cls;p.style.animationDelay=(i*0.02)+'s';el.appendChild(p);} }
+  fillPapers(document.getElementById('junk'),40,'junk');
+  fillPapers(document.getElementById('real'),8,'real');
+
+  // ranking (scene4) — real atopy run + filtered passengers
+  var rows=[
+    {r:1,g:'IL31',s:0.5271,hero:0},{r:2,g:'FLG',s:0.4592,hero:1,note:'filaggrin · 아토피 최대 감수성 유전자'},
+    {r:3,g:'MRGPRX2',s:0.2389},{r:4,g:'IGHE',s:0.1750},{r:5,g:'IL13',s:0.1475},
+    {r:6,g:'IL22',s:0.1173},{r:7,g:'JAK1',s:0.0876},{r:8,g:'TNFSF4',s:0.0835},{r:9,g:'STAT6',s:0.0797},
+    {g:'CD274 (단골 유전자)',s:0.06,drop:1},{g:'CAT (글자만 같은 가짜)',s:0.05,drop:1}
+  ];
+  var rankEl=document.getElementById('rank'), MAX=0.55;
+  rows.forEach(function(o){
+    var d=document.createElement('div'); d.className='row'+(o.drop?' drop':'')+(o.hero?' hero':'');
+    d.innerHTML='<span class="rk">'+(o.drop?'—':o.r)+'</span>'+
+      '<span class="g">'+o.g+(o.note?'<span class="flg">'+o.note+'</span>':'')+'</span>'+
+      '<span class="track"><i style="--w:'+Math.round(o.s/MAX*100)+'%"></i></span>'+
+      '<span class="s">'+(o.drop?'drop':o.s.toFixed(3))+'</span>';
+    rankEl.appendChild(d);
+  });
+
+  var stageEl=document.getElementById('stage');
+  function fitStage(){
+    var sc=scenes[cur];
+    stageEl.style.minHeight=Math.max(430, sc.scrollHeight)+'px';
+  }
+  window.addEventListener('resize',fitStage);
+  if(document.fonts && document.fonts.ready) document.fonts.ready.then(fitStage);
+
+  function go(i,manual){
+    cur=(i+N)%N;
+    scenes.forEach(function(s,k){ s.classList.toggle('on',k===cur); });
+    requestAnimationFrame(fitStage);
+    steps.forEach(function(s,k){ s.classList.toggle('active',k===cur); s.classList.toggle('done',k<cur);
+      var bar=s.querySelector('.bar i'); if(k!==cur) bar.style.width=k<cur?'100%':'0'; });
+    document.getElementById('cur').textContent=cur+1;
+    if(manual){ pause(); }
+    restartProgress();
+  }
+  function restartProgress(){
+    t0=performance.now();
+    if(raf) cancelAnimationFrame(raf);
+    if(reduce){ steps[cur].querySelector('.bar i').style.width= playing?'100%':'0'; if(playing) timer=setTimeout(function(){go(cur+1);}, durs[cur]); return; }
+    var bar=steps[cur].querySelector('.bar i');
+    (function tick(now){
+      var p=Math.min(1,(performance.now()-t0)/durs[cur]);
+      bar.style.width=(p*100)+'%';
+      if(p>=1){ if(playing) go(cur+1); return; }
+      if(playing) raf=requestAnimationFrame(tick);
+    })();
+  }
+  function play(){ playing=true; setPlayUI(); restartProgress(); }
+  function pause(){ playing=false; if(raf)cancelAnimationFrame(raf); if(timer)clearTimeout(timer); setPlayUI(); }
+  function setPlayUI(){ document.getElementById('playi').textContent=playing?'❚❚':'▶';
+    document.getElementById('playt').textContent=playing?'일시정지':'재생'; }
+
+  document.getElementById('prev').onclick=function(){ go(cur-1,true); };
+  document.getElementById('nextb').onclick=function(){ go(cur+1,true); };
+  document.getElementById('play').onclick=function(){ playing?pause():play(); };
+  document.addEventListener('keydown',function(e){
+    if(e.key==='ArrowRight')go(cur+1,true); else if(e.key==='ArrowLeft')go(cur-1,true);
+    else if(e.key===' '){e.preventDefault(); playing?pause():play();}
+  });
+
+  go(0); if(reduce){ pause(); } else { setPlayUI(); restartProgress(); }
+})();
+</script>

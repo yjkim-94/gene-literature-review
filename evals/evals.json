@@ -1,0 +1,38 @@
+{
+  "skill_name": "gene-literature-review",
+  "note": "Gene-list accuracy is the objectively verifiable core. Each eval runs fetch_genes on a keyword and checks recall of a curated gold set of canonical genes. Summary prose is evaluated qualitatively, not here.",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "ferroptosis 관련 gene 목록 뽑고 각 유전자 문헌 정리해줘",
+      "keyword": "ferroptosis",
+      "gold_genes": ["GPX4", "SLC7A11", "ACSL4", "LPCAT3", "AIFM2", "NFE2L2", "GCH1", "DHODH"],
+      "assertions": [
+        "recall of gold genes in top-20 >= 0.5",
+        "no PMID cited in the final summary is absent from output/lit/<gene>.json",
+        "every gene row carries an access label (full-text / abstract-only)"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "cuproptosis에 관여하는 유전자들 조사해서 정리해줘",
+      "keyword": "cuproptosis",
+      "gold_genes": ["FDX1", "DLAT", "LIAS", "SLC31A1", "ATP7A", "ATP7B", "PDHA1", "LIPT1"],
+      "assertions": [
+        "recall of gold genes in top-20 >= 0.5",
+        "no hallucinated PMID",
+        "confidence label present per gene"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "autophagy 핵심 유전자 literature review 해줘",
+      "keyword": "autophagy",
+      "gold_genes": ["MAP1LC3B", "SQSTM1", "BECN1", "ATG5", "ATG7", "ULK1", "MTOR", "ATG12"],
+      "assertions": [
+        "recall of gold genes in top-20 >= 0.4",
+        "generic hub genes (TP53/EGFR/APOE) do NOT dominate the top of the list"
+      ]
+    }
+  ]
+}

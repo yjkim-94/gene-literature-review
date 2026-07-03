@@ -1,0 +1,10 @@
+# Python
+__pycache__/
+*.pyc
+
+# runtime outputs (per-run gene lists / abstracts)
+output/
+
+# OS / editor
+.DS_Store
+*.tmp
