@@ -98,13 +98,20 @@ def search_text(keyword, entity):
     return f'"{entity}"' if entity else keyword
 
 
+def gene_query(gid, entity):
+    """The gene half of both the numerator and the denominator (total) query.
+    Quoted (`"@GENE_<id>"`) on the entity path, bare otherwise -- so numerator and
+    denominator use the SAME @GENE form and the co count can never exceed total."""
+    return f'"@GENE_{gid}"' if entity else f"@GENE_{gid}"
+
+
 def co_query(gid, keyword, entity):
     """Co-occurrence numerator query for a gene. The entity form
     `"@GENE_<id>" AND "@DISEASE_MESH:<id>"` (each token quoted -- unquoted the
     colon 400s) counts papers where the gene entity co-occurs with the disease
     ENTITY, so synonym papers are included in one exact call. Free-text is the
     fallback when no entity was resolved."""
-    return f'"@GENE_{gid}" AND "{entity}"' if entity else f"@GENE_{gid} AND {keyword}"
+    return f'{gene_query(gid, entity)} AND "{entity}"' if entity else f"@GENE_{gid} AND {keyword}"
 
 
 def entity_candidates(keyword, top=6):
@@ -175,7 +182,10 @@ def wilson_lower(k, n, z=1.96):
     """
     if n == 0:
         return 0.0
-    p = k / n
+    # k should never exceed n (co-occurrence is a subset of the gene's papers),
+    # but two independent PubTator count calls can transiently disagree. Clamp so
+    # p>1 can't drive the sqrt below zero -> a complex result -> round() crash.
+    p = min(k, n) / n
     z2 = z * z
     center = p + z2 / (2 * n)
     margin = z * ((p * (1 - p) / n + z2 / (4 * n * n)) ** 0.5)
@@ -251,7 +261,7 @@ def resolve_human(cnt, keyword, entity, organism, max_genes, min_spec, min_co, m
     for i, (gid, rec) in enumerate(picked):
         sym = rec.get("name", "")
         print(f"specificity [{i + 1}/{len(picked)}]: {sym}", file=sys.stderr)
-        total, _ = _pubtator_count(f"@GENE_{gid}")
+        total, _ = _pubtator_count(gene_query(gid, entity))
         time.sleep(0.34)
         if total == 0:
             continue

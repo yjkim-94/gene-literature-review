@@ -9,7 +9,7 @@ Run: python scripts/test_fetch_genes.py
 """
 import json as _json
 import fetch_genes
-from fetch_genes import wilson_lower, rank_and_floor, search_text, co_query, entity_candidates, slug
+from fetch_genes import wilson_lower, rank_and_floor, search_text, co_query, gene_query, entity_candidates, slug
 
 
 def _row(sym, co, total):
@@ -80,11 +80,25 @@ def test_slug_never_empty_and_isolates_non_ascii():
     assert slug("아토피") != slug("천식")
 
 
+def test_co_and_total_use_same_gene_form():
+    # numerator and denominator must quote @GENE identically, else co can exceed
+    # total and wilson_lower goes complex. Entity path: both quoted.
+    assert gene_query("2312", "@DISEASE_X") == '"@GENE_2312"'
+    assert co_query("2312", "kw", "@DISEASE_X").startswith('"@GENE_2312" AND ')
+    # free-text path: both bare
+    assert gene_query("2312", "") == "@GENE_2312"
+    assert co_query("2312", "atopy", "").startswith("@GENE_2312 AND ")
+
+
 def test_wilson_lower_bounds_and_degenerate():
     assert wilson_lower(0, 0) == 0.0
     assert 0.0 <= wilson_lower(1, 5) <= 1.0
     assert abs(wilson_lower(700, 1000) - 0.7) < 0.03  # large n ~ point estimate
     assert wilson_lower(5, 5) < 1.0  # perfect ratio, small n -> shrunk
+    # k>n (transient count disagreement) must stay real, never complex -> no round() crash
+    v = wilson_lower(5, 3)
+    assert isinstance(v, float) and 0.0 <= v <= 1.0, v
+    assert isinstance(round(v, 4), float)
 
 
 if __name__ == "__main__":
@@ -94,5 +108,6 @@ if __name__ == "__main__":
     test_entity_query_quotes_both_tokens_freetext_fallback()
     test_entity_candidates_parse_and_novel_fallback()
     test_slug_never_empty_and_isolates_non_ascii()
+    test_co_and_total_use_same_gene_form()
     test_wilson_lower_bounds_and_degenerate()
     print("ok: floor + wilson_lower demote tiny-n artifacts, keep specific core genes on top")
