@@ -5,6 +5,8 @@ A Claude skill that takes a keyword (disease, pathway, phenotype, etc.) and prod
 - **List-centric**: literature review is not for per-gene narrative summaries but the **evidence layer that validates list accuracy**. specificity value + representative PMID *is* the proof that "this gene is genuinely tied to the keyword."
 - Small gene counts go through per-gene literature summaries (Phase 3); large ones (hundreds–1000) stop at the list + evidence values.
 
+> **Which doc is which** — `SKILL.md` is the single source of truth for the operational workflow (the 4 phases, checkpoint formats, invariants) and is what an AI agent executes. This README is the human-facing overview: install, run commands, output columns, and design rationale. When workflow details matter, defer to `SKILL.md`; don't restate its steps here.
+
 ## Layout
 
 ```
@@ -87,4 +89,9 @@ Putting gene × paper × abstract into context makes cost grow quadratically. �
 See `DESIGN.md` for the design rationale and loop-validation history.
 
 ## Notes
-- NCBI/PubTator rate limit: 3 req/s without a key. Set the `NCBI_API_KEY` env var to automatically use 10 req/s.
+- **NCBI API key (recommended).** Rate limit is 3 req/s without a key, 10 req/s with one — a big speedup on the scoring/collection loops. Get a free key at NCBI account → Settings → *API Key Management*, then set the `NCBI_API_KEY` env var (both scripts read it automatically):
+  - PowerShell (persistent, new shells): `setx NCBI_API_KEY "your-key-here"`
+  - PowerShell (current session only): `$env:NCBI_API_KEY = "your-key-here"`
+  - bash/zsh: `export NCBI_API_KEY="your-key-here"` (add to `~/.bashrc` to persist)
+
+  When it is not set, the scripts print a one-line reminder at startup, so first-time users always learn the key exists.

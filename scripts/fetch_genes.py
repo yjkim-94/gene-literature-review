@@ -365,6 +365,9 @@ def main():
     # appears immediately and the phase log fills line-by-line (info() flushes)
     # -- the run can be watched live via `tail -f`.
     runlog.open_log(os.path.dirname(out) or ".", "phase1_fetch_genes.log")
+    if not os.environ.get("NCBI_API_KEY"):
+        log("no NCBI_API_KEY set -- running at 3 req/s. Set the env var for 10 req/s "
+            "(see README > Notes).")
 
     cnt = rank_gene_ids(search_text(args.keyword, args.entity), args.scan)
     if not cnt:

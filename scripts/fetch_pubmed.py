@@ -90,6 +90,9 @@ def main():
 
     # Log into the run dir (parent of lit/) so scan + literature share a folder.
     runlog.open_log(os.path.dirname(out_dir) or ".", "phase2_fetch_pubmed.log")
+    if not os.environ.get("NCBI_API_KEY"):
+        log("no NCBI_API_KEY set -- running at 3 req/s. Set the env var for 10 req/s "
+            "(see README > Notes).")
 
     with open(args.genes, encoding="utf-8", newline="") as f:
         genes = list(csv.DictReader(f, delimiter="\t"))
