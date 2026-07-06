@@ -44,6 +44,7 @@ import random
 import re
 import statistics
 import sys
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -276,7 +277,7 @@ def save_cache(cache, path):
             f.write(f"{gid}\t{tok}\t{n}\n")
 
 
-def panel_count(gid, token, cache):
+def panel_count(gid, token, cache, cache_lock=None):
     """Cache-backed co-occurrence count of gene gid with a panel disease token.
 
     ponytail: only these panel co-counts are cached -- they are the O(genes x
@@ -287,7 +288,12 @@ def panel_count(gid, token, cache):
     """
     key = (gid, token)
     if key not in cache:
-        cache[key], _ = _pubtator_count(co_query(gid, "", token))
+        n, _ = _pubtator_count(co_query(gid, "", token))
+        if cache_lock:
+            with cache_lock:
+                cache[key] = n
+        else:
+            cache[key] = n
     return cache[key]
 
 
@@ -295,7 +301,7 @@ def _logit(s):
     return math.log(s / (1 - s))
 
 
-def cdrs_enrich(rows, panel_tokens, cache):
+def cdrs_enrich(rows, panel_tokens, cache, cache_path=None):
     """Add z_rel / breadth_random / hub_penalty to each scored row (OBSERVE only).
 
     For each gene, compare its query-disease specificity to its specificity
@@ -309,14 +315,19 @@ def cdrs_enrich(rows, panel_tokens, cache):
     """
     a, eps = CDRS_ALPHA, CDRS_EPS
     n_done = [0]
+    cache_lock = threading.Lock()
+
+    def flush_cache():
+        if cache_path:
+            with cache_lock:
+                save_cache(cache, cache_path)
 
     def enrich(row):
         gid, co, total = row["gene_id"], row["co_papers"], row["gene_papers"]
         # panel counts are sequential inside one gene so we don't exceed the
-        # ~3-worker PubTator ceiling (genes run in parallel, see below). Each
-        # gene writes only its own (gid, token) cache keys, so parallel genes
-        # never touch the same key -- no lock needed.
-        cs = [panel_count(gid, tok, cache) for tok in panel_tokens]
+        # ~3-worker PubTator ceiling (genes run in parallel, see below). Cache
+        # writes are locked so incremental flushes never iterate a mutating dict.
+        cs = [panel_count(gid, tok, cache, cache_lock) for tok in panel_tokens]
         # clamp co/c to total before logit: two independent PubTator count calls
         # can transiently disagree (co > total), which would push s>1 and crash
         # math.log -- same guard wilson_lower already applies.
@@ -331,6 +342,7 @@ def cdrs_enrich(rows, panel_tokens, cache):
         n_done[0] += 1
         log(f"cdrs [{n_done[0]}/{len(rows)}]: {row['symbol']} "
             f"z_rel={row['z_rel']} breadth={row['breadth_random']}")
+        flush_cache()
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
         list(ex.map(enrich, rows))
@@ -634,7 +646,10 @@ def main():
         cache, cache_path = load_cache(args.cache_dir)
         log(f"cdrs: {len(all_scored)} genes x {len(panel)} panel diseases "
             f"(cache: {len(cache)} entries loaded)")
-        cdrs_enrich(all_scored, tokens, cache)
+        try:
+            cdrs_enrich(all_scored, tokens, cache, cache_path)
+        finally:
+            save_cache(cache, cache_path)
 
         # Stage 3: volume-matched pseudo-diseases -> T_emp -> pass_stage1 + track.
         # pseudo counts are a subset of the panel just enriched, so this is ~free.

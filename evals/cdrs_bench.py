@@ -247,7 +247,9 @@ def ensure_scored(disease):
     out_path = os.path.join(ROOT, "output", fg.slug(disease["keyword"]), "genes.tsv")
     scored_path = out_path.replace("genes.tsv", "genes_all_scored.tsv")
     if os.path.exists(scored_path):
-        return scored_path
+        with open(scored_path, encoding="utf-8") as handle:
+            if "z_rel" in handle.readline().rstrip("\n").split("\t"):
+                return scored_path
 
     command = [
         sys.executable,
