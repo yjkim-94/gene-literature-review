@@ -49,6 +49,18 @@ EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 
 ORGANISM_TAX = {"human": "Homo sapiens", "mouse": "Mus musculus", "rat": "Rattus norvegicus"}
 
+# Progress lines go to stderr and, once the run dir exists, are teed into
+# output/<slug>/fetch_genes.log so a finished run keeps its own trace next to
+# its TSVs. ponytail: module-global handle, fine for a single-run CLI.
+_LOG = None
+
+
+def log(msg):
+    print(msg, file=sys.stderr)
+    if _LOG:
+        _LOG.write(msg + "\n")
+        _LOG.flush()
+
 # Score up to this many organism-matching candidates per requested gene. Scoring
 # is the dominant cost (2 PubTator calls each), so we cap it at a multiple of
 # --max rather than the whole scan: filters + organism drop candidates, so we
@@ -166,8 +178,8 @@ def rank_gene_ids(search_term, scan_papers):
             for gid in seen:
                 cnt[gid] += 1
         time.sleep(0.4)
-    print(f"scan: {len(pmids)}/{scan_papers} papers fetched · {docs_with_gene} "
-          f"with gene tags · {len(cnt)} distinct genes (candidate pool)", file=sys.stderr)
+    log(f"scan: {len(pmids)}/{scan_papers} papers fetched · {docs_with_gene} "
+        f"with gene tags · {len(cnt)} distinct genes (candidate pool)")
     return cnt
 
 
@@ -261,15 +273,15 @@ def resolve_human(cnt, keyword, entity, organism, max_genes, min_spec, min_co, m
     want = ORGANISM_TAX.get(organism.lower(), organism)
     pool = SCORE_MULTIPLE * max_genes
     picked = pick_candidates(cnt, want, pool)
-    print(f"organism filter: {len(cnt)} candidates -> {len(picked)} {organism} "
-          f"matches to score (cap {pool})", file=sys.stderr)
+    log(f"organism filter: {len(cnt)} candidates -> {len(picked)} {organism} "
+        f"matches to score (cap {pool})")
 
     rows = []
     all_scored = []  # every scored candidate, pre-filter, for the cutoff sidecar
     n_zero = 0  # scored candidates with no papers at all (dropped before filter)
     for i, (gid, rec) in enumerate(picked):
         sym = rec.get("name", "")
-        print(f"specificity [{i + 1}/{len(picked)}]: {sym}", file=sys.stderr)
+        log(f"specificity [{i + 1}/{len(picked)}]: {sym}")
         total, _ = _pubtator_count(gene_query(gid, entity))
         time.sleep(0.34)
         if total == 0:
@@ -287,8 +299,8 @@ def resolve_human(cnt, keyword, entity, organism, max_genes, min_spec, min_co, m
         if co < min_co or lower < min_spec:
             continue
         rows.append(row)
-    print(f"scored {len(all_scored)} · dropped {n_zero} (no papers) · "
-          f"passed filter {len(rows)} (min_co={min_co}, min_spec={min_spec})", file=sys.stderr)
+    log(f"scored {len(all_scored)} · dropped {n_zero} (no papers) · "
+        f"passed filter {len(rows)} (min_co={min_co}, min_spec={min_spec})")
     return rank_and_floor(rows, min_gene_papers)[:max_genes], rank_and_floor(all_scored, min_gene_papers)
 
 
@@ -351,24 +363,31 @@ def main():
     # every artifact of one run lives together. --out still overrides if given.
     out = args.out or os.path.join("output", slug(args.keyword), "genes.tsv")
 
+    # Create the run dir and open the log BEFORE any work, so output/<slug>/
+    # appears immediately and fetch_genes.log fills line-by-line (log() flushes)
+    # -- the run can be watched live via `tail -f`.
+    run_dir = os.path.dirname(out) or "."
+    os.makedirs(run_dir, exist_ok=True)
+    global _LOG
+    _LOG = open(os.path.join(run_dir, "fetch_genes.log"), "w", encoding="utf-8")
+
     cnt = rank_gene_ids(search_text(args.keyword, args.entity), args.scan)
     if not cnt:
-        print("no genes found for keyword", file=sys.stderr)
+        log("no genes found for keyword")
     genes, all_scored = resolve_human(cnt, args.keyword, args.entity, args.organism, args.max,
                                       args.min_specificity, args.min_co,
                                       args.min_gene_papers)
-    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
     write_tsv(out, genes)
     # sidecar dump of every scored candidate (pre-filter) so the spec_adj
     # distribution is visible and the cutoff can be set from data, not guessed.
     root, ext = os.path.splitext(out)
     all_path = f"{root}_all_scored{ext or '.tsv'}"
     write_tsv(all_path, all_scored)
-    print(f"{len(genes)} genes -> {out}", file=sys.stderr)
-    print(f"{len(all_scored)} scored (pre-filter) -> {all_path}", file=sys.stderr)
+    log(f"{len(genes)} genes -> {out}")
+    log(f"{len(all_scored)} scored (pre-filter) -> {all_path}")
     for g in genes:
-        print(f"  {g['symbol']} (spec={g['specificity']}, adj={g['spec_adj']}, "
-              f"co={g['co_papers']}/{g['gene_papers']}): {g['name']}", file=sys.stderr)
+        log(f"  {g['symbol']} (spec={g['specificity']}, adj={g['spec_adj']}, "
+            f"co={g['co_papers']}/{g['gene_papers']}): {g['name']}")
 
 
 if __name__ == "__main__":
