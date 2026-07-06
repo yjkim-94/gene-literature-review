@@ -17,6 +17,8 @@ import math
 import os
 import subprocess
 import sys
+import tempfile
+import traceback
 
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -47,6 +49,15 @@ REQUIRED_COLUMNS = (
     "hub_penalty",
     "track",
 )
+RANKING_ORDER = (
+    "co_papers",
+    "specificity",
+    "spec_adj",
+    "enrichment_z",
+    "z_rel",
+    "cdrs_rank_score",
+)
+METRIC_ORDER = ("P@10", "P@20", "nDCG@20", "AUPRC")
 
 
 # ============================================================================
@@ -332,14 +343,7 @@ def render_report(disease, rows, rankings, scores, gt, disease_total, warnings=N
         "| ranking | P@10 | P@20 | nDCG@20 | AUPRC |",
         "|---------|------|------|---------|-------|",
     ]
-    for name in (
-        "co_papers",
-        "specificity",
-        "spec_adj",
-        "enrichment_z",
-        "z_rel",
-        "cdrs_rank_score",
-    ):
+    for name in RANKING_ORDER:
         label = name
         if name == "spec_adj":
             label += " (current)"
@@ -381,7 +385,139 @@ def evaluate(disease, refresh_gt=False):
     )
     rankings = compute_rankings(rows, disease_total)
     scores = score_rankings(rankings, gt["gold"])
-    return render_report(disease, rows, rankings, scores, gt, disease_total, warnings)
+    report = render_report(disease, rows, rankings, scores, gt, disease_total, warnings)
+    candidates = {row["symbol"] for row in rows}
+    gold_in_candidates = gt["gold"] & candidates
+    return {
+        "disease": disease,
+        "report": report,
+        "scores": scores,
+        "meta": {
+            "keyword": disease["keyword"],
+            "n_gold": len(gt["gold"]),
+            "n_gold_in_candidates": len(gold_in_candidates),
+        },
+    }
+
+
+def aggregate_scores(evaluations):
+    eligible = [
+        result for result in evaluations
+        if result["meta"]["n_gold_in_candidates"] > 0
+    ]
+    skipped = [
+        result["meta"]["keyword"] for result in evaluations
+        if result["meta"]["n_gold_in_candidates"] <= 0
+    ]
+    means = {}
+    for ranking in RANKING_ORDER:
+        means[ranking] = {}
+        for metric in METRIC_ORDER:
+            values = [
+                result["scores"][ranking][metric]
+                for result in eligible
+                if ranking in result["scores"]
+            ]
+            means[ranking][metric] = (
+                sum(values) / len(values)
+                if values else None
+            )
+    return {"means": means, "eligible": eligible, "skipped": skipped}
+
+
+def _fmt_metric(value):
+    return "NA" if value is None else f"{value:.3f}"
+
+
+def render_summary(evaluations, errors=None):
+    errors = errors or []
+    aggregate = aggregate_scores(evaluations)
+    lines = [
+        "# CDRS bench - cross-disease summary",
+        "",
+        "## Mean ranking metrics",
+        "",
+        "Averaged across diseases with at least one gold-in-candidates.",
+        "",
+        "| ranking | mean P@10 | mean P@20 | mean nDCG@20 | mean AUPRC |",
+        "|---------|-----------|-----------|--------------|------------|",
+    ]
+    for ranking in RANKING_ORDER:
+        metric = aggregate["means"][ranking]
+        label = ranking
+        if ranking == "spec_adj":
+            label += " (current)"
+        if ranking == "cdrs_rank_score":
+            label += " (placeholder weights)"
+        lines.append(
+            f"| {label} | {_fmt_metric(metric['P@10'])} | "
+            f"{_fmt_metric(metric['P@20'])} | "
+            f"{_fmt_metric(metric['nDCG@20'])} | "
+            f"{_fmt_metric(metric['AUPRC'])} |"
+        )
+
+    skipped = aggregate["skipped"]
+    lines.extend(["", "## Skipped from mean", ""])
+    if skipped:
+        lines.extend(f"- {keyword}: no gold-in-candidates" for keyword in skipped)
+    else:
+        lines.append("- none")
+
+    lines.extend(
+        [
+            "",
+            "## Per-disease breakdown",
+            "",
+            "| disease | n gold | n gold-in-candidates | ranking | nDCG@20 | AUPRC |",
+            "|---------|--------|----------------------|---------|---------|-------|",
+        ]
+    )
+    for result in evaluations:
+        meta = result["meta"]
+        for ranking in RANKING_ORDER:
+            metric = result["scores"][ranking]
+            lines.append(
+                f"| {meta['keyword']} | {meta['n_gold']} | "
+                f"{meta['n_gold_in_candidates']} | {ranking} | "
+                f"{metric['nDCG@20']:.3f} | {metric['AUPRC']:.3f} |"
+            )
+
+    lines.extend(["", "## Verdict", ""])
+    eligible = aggregate["eligible"]
+    if eligible:
+        best_ndcg = max(
+            RANKING_ORDER,
+            key=lambda ranking: aggregate["means"][ranking]["nDCG@20"],
+        )
+        best_auprc = max(
+            RANKING_ORDER,
+            key=lambda ranking: aggregate["means"][ranking]["AUPRC"],
+        )
+        lines.append(
+            f"Best mean nDCG@20: {best_ndcg}; best mean AUPRC: {best_auprc}."
+        )
+    else:
+        lines.append("No disease had gold-in-candidates; no mean verdict available.")
+
+    lines.extend(
+        [
+            "",
+            "## Caveat",
+            "",
+            "- Tuning set only.",
+            "- CDRS weights are PLACEHOLDER values and unvalidated.",
+            "- This is not an adoption claim.",
+            "- method_dev requires the held-out 8 diseases plus paired Wilcoxon "
+            "before claiming CDRS is better.",
+        ]
+    )
+    if errors:
+        lines.extend(["", "## Errors", ""])
+        lines.extend(
+            f"- {error['keyword']}: {error['error']}"
+            for error in errors
+        )
+    return "\n".join(lines)
 
 
 # ============================================================================
@@ -434,7 +570,66 @@ def _selftest():
         "z_rel",
         "cdrs_rank_score",
     }
-    print("ok: metric, percentile, and ranking self-checks pass")
+
+    def fake_scores(base):
+        return {
+            ranking: {
+                "P@10": base + 0.10,
+                "P@20": base + 0.20,
+                "nDCG@20": base + 0.30,
+                "AUPRC": base + 0.40,
+            }
+            for ranking in RANKING_ORDER
+        }
+
+    fake_evaluations = [
+        {
+            "disease": {"keyword": "fake one"},
+            "report": "fake report one",
+            "scores": fake_scores(0.0),
+            "meta": {
+                "keyword": "fake one",
+                "n_gold": 3,
+                "n_gold_in_candidates": 2,
+            },
+        },
+        {
+            "disease": {"keyword": "fake two"},
+            "report": "fake report two",
+            "scores": fake_scores(1.0),
+            "meta": {
+                "keyword": "fake two",
+                "n_gold": 4,
+                "n_gold_in_candidates": 1,
+            },
+        },
+        {
+            "disease": {"keyword": "degenerate"},
+            "report": "fake report degenerate",
+            "scores": fake_scores(100.0),
+            "meta": {
+                "keyword": "degenerate",
+                "n_gold": 5,
+                "n_gold_in_candidates": 0,
+            },
+        },
+    ]
+    aggregate = aggregate_scores(fake_evaluations)
+    assert abs(aggregate["means"]["co_papers"]["P@10"] - 0.60) < 1e-9
+    assert abs(aggregate["means"]["z_rel"]["nDCG@20"] - 0.80) < 1e-9
+    assert aggregate["skipped"] == ["degenerate"]
+    summary = render_summary(fake_evaluations)
+    assert "Best mean nDCG@20" in summary
+    assert "degenerate: no gold-in-candidates" in summary
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = os.path.join(temp_dir, "cdrs_bench_SUMMARY.md")
+        with open(temp_path, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(summary + "\n")
+        assert os.path.exists(temp_path)
+        with open(temp_path, encoding="utf-8") as handle:
+            assert "mean P@10" in handle.read()
+
+    print("ok: metric, percentile, ranking, and aggregation self-checks pass")
 
 
 def main():
@@ -452,12 +647,32 @@ def main():
 
     out_dir = os.path.join(HERE, "output")
     os.makedirs(out_dir, exist_ok=True)
+    evaluations = []
+    errors = []
     for disease in config["diseases"]:
-        report = evaluate(disease, refresh_gt=args.refresh_gt)
+        try:
+            result = evaluate(disease, refresh_gt=args.refresh_gt)
+        except Exception as exc:
+            print(
+                f"ERROR: failed to evaluate '{disease['keyword']}': {exc}",
+                file=sys.stderr,
+            )
+            traceback.print_exc()
+            errors.append({"keyword": disease["keyword"], "error": str(exc)})
+            continue
+
+        report = result["report"]
         out_path = os.path.join(out_dir, f"cdrs_bench_{fg.slug(disease['keyword'])}.md")
         with open(out_path, "w", encoding="utf-8", newline="\n") as handle:
             handle.write(report + "\n")
         print(f"\n{report}\n\n-> {out_path}")
+        evaluations.append(result)
+
+    summary = render_summary(evaluations, errors)
+    summary_path = os.path.join(out_dir, "cdrs_bench_SUMMARY.md")
+    with open(summary_path, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(summary + "\n")
+    print(f"\n{summary}\n\n-> {summary_path}")
 
 
 if __name__ == "__main__":

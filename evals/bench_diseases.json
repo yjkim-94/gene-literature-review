@@ -1,10 +1,37 @@
 {
-  "note": "CDRS eval benchmark diseases. AD pilot only; add entries to expand to the method_dev 12-disease set. keyword+entity drive fetch_genes; mondo_id drives the OpenTargets genetic gold; genetic_threshold sets the gold cutoff on OT genetic_association score.",
+  "note": "CDRS eval benchmark diseases. Tuning set (4) for weight tuning + instrument validation; add held-out entries to reach the method_dev 12-disease set. keyword+entity drive fetch_genes; mondo_id drives the OpenTargets genetic gold; genetic_threshold sets the gold cutoff on OT genetic_association score. None of these diseases is in scripts/data/panel_random.tsv (B_random), so the background can't leak a benchmark disease.",
   "diseases": [
     {
       "keyword": "atopic dermatitis",
       "entity": "@DISEASE_Dermatitis_Atopic",
       "mondo_id": "MONDO_0004980",
+      "genetic_threshold": 0.5,
+      "scan": 80,
+      "max": 20,
+      "split": "tuning"
+    },
+    {
+      "keyword": "asthma",
+      "entity": "@DISEASE_Asthma",
+      "mondo_id": "MONDO_0004979",
+      "genetic_threshold": 0.5,
+      "scan": 80,
+      "max": 20,
+      "split": "tuning"
+    },
+    {
+      "keyword": "rheumatoid arthritis",
+      "entity": "@DISEASE_Arthritis_Rheumatoid",
+      "mondo_id": "MONDO_0008383",
+      "genetic_threshold": 0.5,
+      "scan": 80,
+      "max": 20,
+      "split": "tuning"
+    },
+    {
+      "keyword": "psoriasis",
+      "entity": "@DISEASE_Psoriasis",
+      "mondo_id": "MONDO_0005083",
       "genetic_threshold": 0.5,
       "scan": 80,
       "max": 20,
