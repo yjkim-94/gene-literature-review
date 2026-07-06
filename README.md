@@ -15,6 +15,7 @@ gene-literature-review/
 ├── scripts/
 │   ├── fetch_genes.py      keyword → gene list (entity-grounded specificity ranking)
 │   ├── fetch_pubmed.py     per-gene abstracts → files, PMC access-level labels
+│   ├── runlog.py           shared per-phase logger (section headers + timestamped lines, live)
 │   └── test_fetch_genes.py ranking-logic self-check
 └── evals/                  gene-list recall gold set + automatic measurement
 ```
@@ -28,6 +29,8 @@ python scripts/fetch_genes.py --keyword "atopic dermatitis" --resolve
 python scripts/fetch_genes.py --keyword "atopic dermatitis" --entity "@DISEASE_Dermatitis_Atopic" --max 20
 ```
 Output is a tab-separated TSV (opens directly in Excel). `--entity` is optional — omit it for novel terms with no MeSH entity (free-text fallback). `--out` overrides the default run-dir path.
+
+Each phase also writes a live progress log into the run dir — `phase1_fetch_genes.log` (SCAN/FILTER/SCORE/RESULT) and, once you run `fetch_pubmed.py`, `phase2_fetch_pubmed.log` (COLLECT/RESULT). Both use a section-header + timestamped-line format and flush per line, so a running phase is watchable with `tail -f output/<slug>/phase1_fetch_genes.log`.
 
 ### Output columns (`genes.tsv`)
 
