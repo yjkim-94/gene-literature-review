@@ -40,6 +40,7 @@ import hashlib
 import json
 import math
 import os
+import random
 import re
 import statistics
 import sys
@@ -238,16 +239,18 @@ CDRS_COLS = ["z_rel", "breadth_random", "hub_penalty"]
 
 
 def load_panel(path):
-    """panel_random.tsv -> list of @DISEASE_ tokens (skips # comments + header)."""
-    tokens = []
+    """panel_random.tsv -> list of (token, disease_total). Skips # comments and
+    the header. disease_total is needed to pick volume-matched pseudo-diseases
+    (§6.2); tokens alone drive the z_rel/breadth panel."""
+    panel = []
     with open(path, encoding="utf-8") as f:
         for line in f:
             if line.startswith("#") or line.startswith("token\t"):
                 continue
-            tok = line.split("\t", 1)[0].strip()
-            if tok:
-                tokens.append(tok)
-    return tokens
+            p = line.rstrip("\n").split("\t")
+            if len(p) >= 2 and p[0].strip() and p[1].strip().isdigit():
+                panel.append((p[0].strip(), int(p[1].strip())))
+    return panel
 
 
 def load_cache(cache_dir):
@@ -331,6 +334,89 @@ def cdrs_enrich(rows, panel_tokens, cache):
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
         list(ex.map(enrich, rows))
+
+
+# ---- Stage 3: permutation-null threshold + track assignment (§6.7 step 3) ----
+# Still OBSERVE: T_emp/pass_stage1 populate the `track` column but do NOT reorder
+# the list. T_emp's exact null is a KNOWN open question (method_dev §7-③); this
+# is the doc's provisional pooled-Q0.95 definition, safe to eyeball because it
+# only labels tracks here.
+STAGE3_COLS = ["pass_stage1", "track"]
+# ARTIFACT_CLASSES as a symbol-regex class test, NOT a hardcoded gene blocklist
+# (§6.3). esummary gene-type == pseudo is deferred to step 4 (needs the record
+# carried into rows); the immunoglobulin/TCR/HLA symbols cover the AD case (IGHE).
+# The Ig arms require an isotype/segment letter followed only by digits/hyphens
+# (or end) so real coding genes that merely start with IGH -- IGHMBP2, IGHMBP-
+# like helicases -- are NOT swept in. TR[ABGD][VJDC] and HLA- are already tight.
+ARTIFACT_RE = re.compile(r"^(IG[HKL][ACDEGJMV][\d-]*$|IG[HKL]$|TR[ABGD][VJDC]|HLA-)")
+T_EMP_FALLBACK = 0.05  # §6.8: too few volume-matched pseudo-diseases -> old cut
+
+
+def is_artifact(symbol):
+    return bool(ARTIFACT_RE.match(symbol or ""))
+
+
+def _percentile(sorted_vals, q):
+    """Nearest-rank q-quantile of an already-sorted list (no numpy dep).
+
+    index = ceil(q*n)-1, the standard nearest-rank rule -- round(q*(n-1)) drifts
+    by one for some n via banker's rounding (n=31, q=.95 -> 28 not 29)."""
+    if not sorted_vals:
+        return 0.0
+    i = min(max(math.ceil(q * len(sorted_vals)) - 1, 0), len(sorted_vals) - 1)
+    return sorted_vals[i]
+
+
+def select_pseudo(panel, m_d, n_p, seed):
+    """Pick up to n_p volume-matched pseudo-disease tokens (seed-fixed).
+
+    Volume matching is the point (§6.2): a chance-level threshold is only fair
+    against diseases of similar paper volume. Start at [0.5*M_D, 2*M_D] and
+    widen x2, x3 only if the window holds fewer than n_p. Returns (tokens,
+    too_few) -- too_few triggers the T_emp fallback (§6.8)."""
+    window = []
+    for k in (1, 2, 3):
+        lo, hi = m_d / (2 * k), 2 * k * m_d
+        window = [t for t, d in panel if lo <= d <= hi]
+        if len(window) >= n_p:
+            break
+    rng = random.Random(seed)
+    rng.shuffle(window)
+    pseudo = window[:n_p]
+    # fallback keys off the actually-sampled count: --pseudo-n 5 is too small for
+    # a stable null even if the window held more (§6.8 "<10 -> fallback").
+    return pseudo, len(pseudo) < 10
+
+
+def compute_t_emp(rows, pseudo_tokens, cache):
+    """T_emp = Q0.95 of Wilson-lower(co, G_g) pooled over every candidate gene x
+    pseudo-disease (§6.3). All counts are cache hits (pseudo-diseases are a subset
+    of the already-enriched panel), so this adds ~no network cost."""
+    pool = []
+    for r in rows:
+        gid, total = r["gene_id"], r["gene_papers"]
+        for tok in pseudo_tokens:
+            pool.append(wilson_lower(panel_count(gid, tok, cache), total))
+    pool.sort()
+    return _percentile(pool, 0.95)
+
+
+def assign_tracks(rows, t_emp, min_co, min_gene_papers):
+    """pass_stage1 + 4-track label per gene (§6.5 priority order). OBSERVE only."""
+    med_g = statistics.median([r["gene_papers"] for r in rows]) if rows else 0
+    for r in rows:
+        r["pass_stage1"] = (r["co_papers"] >= min_co and r["gene_papers"] >= min_gene_papers
+                            and wilson_lower(r["co_papers"], r["gene_papers"]) >= t_emp)
+        if is_artifact(r["symbol"]):
+            r["track"] = "artifact"
+        elif not r["pass_stage1"] and r["gene_papers"] < med_g:
+            r["track"] = "exploratory"
+        elif r["breadth_random"] >= 0.5:
+            r["track"] = "related_pleiotropic"
+        elif r["pass_stage1"]:
+            r["track"] = "established"
+        else:
+            r["track"] = "exploratory"
 
 
 def rank_and_floor(rows, min_gene_papers):
@@ -445,17 +531,17 @@ def write_tsv(path, genes):
     # CDRS columns appear only when --rank cdrs populated them (observe mode);
     # the spec path writes exactly the original columns, so nothing downstream
     # of the default run changes.
-    cdrs = bool(genes) and "z_rel" in genes[0]
-    cols = TSV_COLS + (CDRS_COLS if cdrs else [])
+    # Extra CDRS/Stage3 columns appear only when --rank cdrs populated them; the
+    # spec path writes exactly the original columns, unchanged.
+    extra = [c for c in CDRS_COLS + STAGE3_COLS if genes and c in genes[0]]
     with open(path, "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f, delimiter="\t")
-        w.writerow(cols)
+        w.writerow(TSV_COLS + extra)
         for g in genes:
             row = [g["symbol"], g["gene_id"], g["name"], g["co_papers"],
                    g["gene_papers"], g["specificity"], g["spec_adj"],
                    str(g["below_floor"]).lower(), ";".join(g["evidence_pmids"])]
-            if cdrs:
-                row += [g[c] for c in CDRS_COLS]
+            row += [g[c] for c in extra]
             w.writerow(row)
 
 
@@ -488,6 +574,10 @@ def main():
     ap.add_argument("--cache-dir", default=os.path.join("output", ".cache"),
                     help="PubTator count cache dir (shared across keywords; panel counts "
                          "are keyword-independent)")
+    ap.add_argument("--pseudo-n", type=int, default=30,
+                    help="number of volume-matched pseudo-diseases for the T_emp null (--rank cdrs)")
+    ap.add_argument("--seed", type=int, default=42,
+                    help="RNG seed for pseudo-disease sampling (reproducible T_emp)")
     ap.add_argument("--out", help="output TSV path; default output/<keyword-slug>/genes.tsv")
     ap.add_argument("--resolve", action="store_true",
                     help="resolve --keyword to PubTator concept-entity candidates "
@@ -540,12 +630,28 @@ def main():
         panel = load_panel(args.panel_random)
         if not panel:
             sys.exit(f"panel {args.panel_random} has no disease tokens (all comment/blank)")
+        tokens = [t for t, _ in panel]
         cache, cache_path = load_cache(args.cache_dir)
         log(f"cdrs: {len(all_scored)} genes x {len(panel)} panel diseases "
             f"(cache: {len(cache)} entries loaded)")
-        cdrs_enrich(all_scored, panel, cache)
+        cdrs_enrich(all_scored, tokens, cache)
+
+        # Stage 3: volume-matched pseudo-diseases -> T_emp -> pass_stage1 + track.
+        # pseudo counts are a subset of the panel just enriched, so this is ~free.
+        m_d = _pubtator_count(search_text(args.keyword, args.entity))[0]
+        pseudo, too_few = select_pseudo(panel, m_d, args.pseudo_n, args.seed)
+        if too_few:
+            t_emp = T_EMP_FALLBACK
+            log(f"cdrs: only {len(pseudo)} volume-matched pseudo-diseases (<10) -> "
+                f"T_emp fallback {t_emp} (method_dev §6.8)")
+        else:
+            t_emp = compute_t_emp(all_scored, pseudo, cache)
+            log(f"cdrs: M_D={m_d}, {len(pseudo)} pseudo-diseases -> T_emp={t_emp:.4f}")
+        assign_tracks(all_scored, t_emp, args.min_co, args.min_gene_papers)
         save_cache(cache, cache_path)
         log(f"cdrs: cache now {len(cache)} entries -> {cache_path}")
+        for tr, n in sorted(collections.Counter(g["track"] for g in all_scored).items()):
+            log(f"cdrs track: {tr} = {n}")
 
     write_tsv(out, genes)
     # sidecar dump of every scored candidate (pre-filter) so the spec_adj
