@@ -34,6 +34,7 @@ downstream steps locate their inputs/outputs by that dir -- no re-derived slug.
 """
 import argparse
 import collections
+import concurrent.futures
 import csv
 import hashlib
 import json
@@ -58,6 +59,9 @@ ORGANISM_TAX = {"human": "Homo sapiens", "mouse": "Mus musculus", "rat": "Rattus
 # must attempt more than --max to end up with --max. ponytail: 5x is a heuristic;
 # raise if runs routinely return fewer than --max after filtering.
 SCORE_MULTIPLE = 5
+# ponytail: PubTator3 measured ceiling is 3 clean workers; 8+ mass 429. Raising
+# this trips the rolling ~3-4 req/s sustained limit.
+MAX_WORKERS = 3
 
 
 def slug(keyword):
@@ -140,27 +144,33 @@ def rank_gene_ids(search_term, scan_papers):
     """Return GeneIDs ranked by mention frequency across the concept's papers."""
     runlog.section("SCAN")
     q = urllib.parse.quote(search_term)
-    pmids = []
-    page = 1
-    while len(pmids) < scan_papers:
+    log(f"scan: collecting up to {scan_papers} PMIDs ...")
+
+    def fetch_search_page(page):
         d = json.loads(_get(f"{PUBTATOR}/search/?text={q}&page={page}"))
         got = [str(r["pmid"]) for r in d.get("results", [])]
-        if not got:
-            break
+        return d, got
+
+    pmids = []
+    d, got = fetch_search_page(1)
+    if got:
         pmids += got
-        page += 1
-        time.sleep(0.3)
+    count = d.get("count", 0)
+    pages_needed = max(1, (min(scan_papers, count) + 9) // 10)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+        for _, got in ex.map(fetch_search_page, range(2, pages_needed + 1)):
+            if got:
+                pmids += got
     pmids = pmids[:scan_papers]
 
     log(f"scan: collected {len(pmids)} PMIDs, tagging genes...")
     cnt = collections.Counter()
     docs_with_gene = 0
-    for i in range(0, len(pmids), 10):
-        if i % 100 == 0:  # progress every 100 papers (chunks are 10 each)
-            log(f"scan: tagging {i}/{len(pmids)} papers "
-                f"· {len(cnt)} distinct genes so far")
+
+    def tag_chunk(i):
         chunk = ",".join(pmids[i:i + 10])
         bio = json.loads(_get(f"{PUBTATOR}/publications/export/biocjson?pmids={chunk}"))
+        doc_gene_ids = []
         for doc in bio.get("PubTator3", []):
             seen = set()  # count each gene once per paper, not per mention
             for p in doc.get("passages", []):
@@ -169,11 +179,19 @@ def rank_gene_ids(search_term, scan_papers):
                     gid = inf.get("identifier")
                     if inf.get("type") == "Gene" and gid:
                         seen.add(gid)
-            if seen:
-                docs_with_gene += 1
-            for gid in seen:
-                cnt[gid] += 1
-        time.sleep(0.4)
+            doc_gene_ids.append(seen)
+        return i, doc_gene_ids
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+        for i, doc_gene_ids in ex.map(tag_chunk, range(0, len(pmids), 10)):
+            if i % 100 == 0:  # progress every 100 papers (chunks are 10 each)
+                log(f"scan: tagging {i}/{len(pmids)} papers "
+                    f"· {len(cnt)} distinct genes so far")
+            for seen in doc_gene_ids:
+                if seen:
+                    docs_with_gene += 1
+                for gid in seen:
+                    cnt[gid] += 1
     log(f"scan: {len(pmids)}/{scan_papers} papers fetched · {docs_with_gene} "
         f"with gene tags · {len(cnt)} distinct genes (candidate pool)")
     return cnt
@@ -277,26 +295,33 @@ def resolve_human(cnt, keyword, entity, organism, max_genes, min_spec, min_co, m
     rows = []
     all_scored = []  # every scored candidate, pre-filter, for the cutoff sidecar
     n_zero = 0  # scored candidates with no papers at all (dropped before filter)
-    for i, (gid, rec) in enumerate(picked):
+
+    def score_candidate(item):
+        i, (gid, rec) = item
         sym = rec.get("name", "")
-        log(f"specificity [{i + 1}/{len(picked)}]: {sym}")
         total, _ = _pubtator_count(gene_query(gid, entity))
-        time.sleep(0.34)
         if total == 0:
-            n_zero += 1
-            continue
+            return i, sym, None, None
         co, evidence_pmids = _pubtator_count(co_query(gid, keyword, entity))
-        time.sleep(0.34)
         spec = co / total
         lower = wilson_lower(co, total)
         row = {"symbol": sym, "gene_id": gid, "name": rec.get("description", ""),
                "co_papers": co, "gene_papers": total,
                "specificity": round(spec, 4), "spec_adj": round(lower, 4),
                "evidence_pmids": evidence_pmids}
-        all_scored.append(row)
-        if co < min_co or lower < min_spec:
-            continue
-        rows.append(row)
+        return i, sym, row, lower
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+        for i, sym, row, lower in ex.map(score_candidate, enumerate(picked)):
+            log(f"specificity [{i + 1}/{len(picked)}]: {sym}")
+            if row is None:
+                n_zero += 1
+                continue
+            co = row["co_papers"]
+            all_scored.append(row)
+            if co < min_co or lower < min_spec:
+                continue
+            rows.append(row)
     log(f"scored {len(all_scored)} · dropped {n_zero} (no papers) · "
         f"passed filter {len(rows)} (min_co={min_co}, min_spec={min_spec})")
     return rank_and_floor(rows, min_gene_papers)[:max_genes], rank_and_floor(all_scored, min_gene_papers)
