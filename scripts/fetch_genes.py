@@ -38,8 +38,10 @@ import concurrent.futures
 import csv
 import hashlib
 import json
+import math
 import os
 import re
+import statistics
 import sys
 import time
 import urllib.parse
@@ -223,6 +225,114 @@ def wilson_lower(k, n, z=1.96):
     return (center - margin) / (1 + z2 / n)
 
 
+# ---- CDRS: cross-disease relative specificity (method_dev.md §6) ------------
+# OBSERVE ONLY (§6.7 step 2): computes z_rel / breadth_random / hub_penalty and
+# adds them as columns, but ranking stays on spec_adj. Enabled by --rank cdrs.
+# These columns exist to be eyeballed on real runs before they drive rank_score.
+CDRS_ALPHA = 0.5
+CDRS_EPS = 1e-9
+# ponytail: PLACEHOLDER floor (method_dev §7-①) -- same "arbitrary constant"
+# critique as the old 0.05; breadth's specificity bar, to be derived/tuned later.
+CDRS_BAR_B = 0.02
+CDRS_COLS = ["z_rel", "breadth_random", "hub_penalty"]
+
+
+def load_panel(path):
+    """panel_random.tsv -> list of @DISEASE_ tokens (skips # comments + header)."""
+    tokens = []
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            if line.startswith("#") or line.startswith("token\t"):
+                continue
+            tok = line.split("\t", 1)[0].strip()
+            if tok:
+                tokens.append(tok)
+    return tokens
+
+
+def load_cache(cache_dir):
+    """(gene_id, token) -> count, persisted across runs. Panel co-counts are
+    keyword-INDEPENDENT, so reusing them across keywords is the whole point of
+    the cache (method_dev §6.4) -- without it every run re-issues thousands of
+    identical PubTator calls. Returns (dict, path)."""
+    path = os.path.join(cache_dir, "pubtator_counts.tsv")
+    cache = {}
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                p = line.rstrip("\n").split("\t")
+                if len(p) == 3 and p[2].lstrip("-").isdigit():  # tolerate stray/header lines
+                    cache[(p[0], p[1])] = int(p[2])
+    return cache, path
+
+
+def save_cache(cache, path):
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        for (gid, tok), n in sorted(cache.items()):
+            f.write(f"{gid}\t{tok}\t{n}\n")
+
+
+def panel_count(gid, token, cache):
+    """Cache-backed co-occurrence count of gene gid with a panel disease token.
+
+    ponytail: only these panel co-counts are cached -- they are the O(genes x
+    panel) cost that reruns must not repay. The gene total / query co-count are
+    fetched once each in the spec scoring path (and query-co carries evidence
+    PMIDs that don't belong in a count cache), so they are not routed here yet;
+    complete the §6.4 full wrapper when rank_score wiring lands.
+    """
+    key = (gid, token)
+    if key not in cache:
+        cache[key], _ = _pubtator_count(co_query(gid, "", token))
+    return cache[key]
+
+
+def _logit(s):
+    return math.log(s / (1 - s))
+
+
+def cdrs_enrich(rows, panel_tokens, cache):
+    """Add z_rel / breadth_random / hub_penalty to each scored row (OBSERVE only).
+
+    For each gene, compare its query-disease specificity to its specificity
+    across the random disease panel:
+      s(g,d)  = (co + a) / (gene_papers + 2a)    ; x = logit(s)
+      z_rel   = (x_query - median_panel x) / (1.4826*MAD + eps)   -- robust z
+      breadth = fraction of panel where Wilson-lower(co_panel) >= BAR_B
+    A gene no more specific to the query than to random diseases scores z_rel~0;
+    a pleiotropic hub is broad (high breadth -> hub_penalty demotes it). Ranking
+    is NOT touched here. Mutates the row dicts in place.
+    """
+    a, eps = CDRS_ALPHA, CDRS_EPS
+    n_done = [0]
+
+    def enrich(row):
+        gid, co, total = row["gene_id"], row["co_papers"], row["gene_papers"]
+        # panel counts are sequential inside one gene so we don't exceed the
+        # ~3-worker PubTator ceiling (genes run in parallel, see below). Each
+        # gene writes only its own (gid, token) cache keys, so parallel genes
+        # never touch the same key -- no lock needed.
+        cs = [panel_count(gid, tok, cache) for tok in panel_tokens]
+        # clamp co/c to total before logit: two independent PubTator count calls
+        # can transiently disagree (co > total), which would push s>1 and crash
+        # math.log -- same guard wilson_lower already applies.
+        x_d = _logit((min(co, total) + a) / (total + 2 * a))
+        xs = [_logit((min(c, total) + a) / (total + 2 * a)) for c in cs]
+        med = statistics.median(xs)
+        mad = statistics.median([abs(x - med) for x in xs])  # 0 if panel uniform -> eps guards
+        breadth = sum(wilson_lower(c, total) >= CDRS_BAR_B for c in cs) / len(cs)
+        row["z_rel"] = round((x_d - med) / (1.4826 * mad + eps), 4)
+        row["breadth_random"] = round(breadth, 4)
+        row["hub_penalty"] = round(1 - min(breadth, 0.8), 4)
+        n_done[0] += 1
+        log(f"cdrs [{n_done[0]}/{len(rows)}]: {row['symbol']} "
+            f"z_rel={row['z_rel']} breadth={row['breadth_random']}")
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+        list(ex.map(enrich, rows))
+
+
 def rank_and_floor(rows, min_gene_papers):
     """Order rows by specificity lower bound, demoting tiny-denominator genes.
 
@@ -332,13 +442,21 @@ TSV_COLS = ["symbol", "gene_id", "name", "co_papers", "gene_papers",
 
 
 def write_tsv(path, genes):
+    # CDRS columns appear only when --rank cdrs populated them (observe mode);
+    # the spec path writes exactly the original columns, so nothing downstream
+    # of the default run changes.
+    cdrs = bool(genes) and "z_rel" in genes[0]
+    cols = TSV_COLS + (CDRS_COLS if cdrs else [])
     with open(path, "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f, delimiter="\t")
-        w.writerow(TSV_COLS)
+        w.writerow(cols)
         for g in genes:
-            w.writerow([g["symbol"], g["gene_id"], g["name"], g["co_papers"],
-                        g["gene_papers"], g["specificity"], g["spec_adj"],
-                        str(g["below_floor"]).lower(), ";".join(g["evidence_pmids"])])
+            row = [g["symbol"], g["gene_id"], g["name"], g["co_papers"],
+                   g["gene_papers"], g["specificity"], g["spec_adj"],
+                   str(g["below_floor"]).lower(), ";".join(g["evidence_pmids"])]
+            if cdrs:
+                row += [g[c] for c in CDRS_COLS]
+            w.writerow(row)
 
 
 def main():
@@ -361,6 +479,15 @@ def main():
                     help="require at least this many keyword+gene co-occurrence papers")
     ap.add_argument("--min-gene-papers", type=int, default=10,
                     help="demote genes with fewer than this many total papers (artifact floor)")
+    ap.add_argument("--rank", choices=["spec", "cdrs"], default="spec",
+                    help="spec (default, current behavior) or cdrs: also compute the "
+                         "cross-disease z_rel/breadth/hub_penalty columns (OBSERVE only -- "
+                         "ranking still on spec_adj). method_dev.md §6")
+    ap.add_argument("--panel-random", default=os.path.join("scripts", "data", "panel_random.tsv"),
+                    help="B_random disease panel for --rank cdrs")
+    ap.add_argument("--cache-dir", default=os.path.join("output", ".cache"),
+                    help="PubTator count cache dir (shared across keywords; panel counts "
+                         "are keyword-independent)")
     ap.add_argument("--out", help="output TSV path; default output/<keyword-slug>/genes.tsv")
     ap.add_argument("--resolve", action="store_true",
                     help="resolve --keyword to PubTator concept-entity candidates "
@@ -400,6 +527,26 @@ def main():
     genes, all_scored = resolve_human(cnt, args.keyword, args.entity, args.organism, args.max,
                                       args.min_specificity, args.min_co,
                                       args.min_gene_papers)
+
+    # --rank cdrs: enrich every scored candidate with the cross-disease columns
+    # (all_scored dicts are shared with genes, so both outputs pick them up). This
+    # is observe-only -- rank_and_floor already ordered by spec_adj and we don't
+    # re-sort. §6.7 steps 1-2.
+    if args.rank == "cdrs":
+        if not os.path.exists(args.panel_random):
+            sys.exit(f"--rank cdrs needs a panel file but {args.panel_random} is missing "
+                     f"(build it: python scripts/data/build_panel_random.py)")
+        runlog.section("CDRS")
+        panel = load_panel(args.panel_random)
+        if not panel:
+            sys.exit(f"panel {args.panel_random} has no disease tokens (all comment/blank)")
+        cache, cache_path = load_cache(args.cache_dir)
+        log(f"cdrs: {len(all_scored)} genes x {len(panel)} panel diseases "
+            f"(cache: {len(cache)} entries loaded)")
+        cdrs_enrich(all_scored, panel, cache)
+        save_cache(cache, cache_path)
+        log(f"cdrs: cache now {len(cache)} entries -> {cache_path}")
+
     write_tsv(out, genes)
     # sidecar dump of every scored candidate (pre-filter) so the spec_adj
     # distribution is visible and the cutoff can be set from data, not guessed.
