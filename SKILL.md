@@ -59,7 +59,7 @@ max      : <max>
 scan      : <N>편 완료
 후보 gene : <후보수>개
 
-→ 상위 <4×max>개(=4×max) scoring 시작
+→ 상위 <5×max>개(=5×max) scoring 시작
 ```
 
 ```
@@ -123,7 +123,7 @@ specificity = (papers where the gene ENTITY co-occurs with the keyword/concept) 
 
 Both counts come from PubTator `@GENE_<id>` search — **not `[tiab]` string matching.** This is the crux: `CAT` resolves to the catalase **entity**, so "cat allergen" papers don't leak in (string matching would poison it). **The keyword side is also an entity when `--entity @DISEASE_MESH:<id>` is passed** (from the gate's MeSH resolution): both discovery and the numerator query become `"@GENE_<id>" AND "@DISEASE_MESH:<id>"`, which **unions the concept's surface synonyms** ("atopic eczema", "infantile eczema" → one MeSH disease entity) in a single exact call. This is why OR-expansion is neither needed nor allowed — grouping-less synonym OR *collapses* the PubTator parser (measured: `atopic dermatitis OR atopic eczema` → 20,466, *below* the single term's 66,111), while the entity does the union natively. Novel terms with no MeSH (cuproptosis) omit `--entity` and fall back to free-text `--keyword`. Raw frequency alone lets passengers like CD274/CDKN2A rank high; specificity filters them out. Ranking uses the **Wilson lower bound (`spec_adj`), not the point estimate** — so a thinly-supported gene (3 of 3 papers = 1.0) can't beat a core gene backed by hundreds. On top of that a **low absolute denominator floor** demotes artifacts (total papers below `--min-gene-papers` are demoted, not deleted). The relative-percentile floor was dropped — it penalizes a less-studied but highly specific core gene (FDX1, 1565 papers) just for having fewer papers than its siblings (2000–3700). Output is a **tab-separated TSV** (opens directly in Excel) with columns `symbol · gene_id · name · co_papers · gene_papers · specificity · spec_adj · below_floor · evidence_pmids` (evidence_pmids is `;`-joined), sorted by `spec_adj` descending. Default thresholds: `--min-specificity 0.05` (applied to the lower bound), `--min-co 5`, `--min-gene-papers 10`.
 
-**Scoring is bounded by `--max`, not by scan size.** Specificity scoring costs 2 PubTator calls per candidate (the dominant cost), so only the **top `4 × --max` candidates by co-mention** get scored (`SCORE_MULTIPLE` in the script). Organism is filtered *first*, on the cheap batched esummary, so the 2-call scoring never runs on a non-`--organism` gene. The `4×` headroom absorbs filter + organism dropout so `--max` genes still survive; if a keyword's true specific-gene count is smaller, fewer come back (never inflated). The co-mention prefilter doubles as an artifact cut — one-off NER mistags in the long tail never reach scoring. There is **no `--cand-pool`** (removed; it was a manual guess for this pool — now derived from `--max`).
+**Scoring is bounded by `--max`, not by scan size.** Specificity scoring costs 2 PubTator calls per candidate (the dominant cost), so only the **top `5 × --max` candidates by co-mention** get scored (`SCORE_MULTIPLE` in the script). Organism is filtered *first*, on the cheap batched esummary, so the 2-call scoring never runs on a non-`--organism` gene. The `4×` headroom absorbs filter + organism dropout so `--max` genes still survive; if a keyword's true specific-gene count is smaller, fewer come back (never inflated). The co-mention prefilter doubles as an artifact cut — one-off NER mistags in the long tail never reach scoring. There is **no `--cand-pool`** (removed; it was a manual guess for this pool — now derived from `--max`).
 
 Alongside `genes.tsv`, the script always writes a sidecar `genes_all_scored.tsv` — **every scored candidate before the `min_co`/`min_specificity` filter**, same columns, sorted by `spec_adj`. Read it to set the cutoff from the actual `spec_adj` distribution (does 0.05 land on a real gap, or slice through a smooth run?) and to see exactly which gene was the first one cut and by how much — the filtered `genes.tsv` alone can't show that.
 
@@ -162,7 +162,7 @@ Then report and confirm:
 2. **Scan time**: NER runs ~**1–2 min per 1,000 papers** scanned. State this so the estimate isn't mistaken for the whole run — **scoring (after candidates are known) is the dominant, separate cost** and can't be estimated until the candidate count is in.
 3. **Caveat**: the distinct-gene count is unknown until the scan runs, so **`--max` may not fill** — a keyword may simply not have that many specific genes. Don't promise the full number.
 4. **Ask `--scan` and `--organism`** here (organism is only used post-scan in the esummary filter, so this is the latest it can be set). Do *not* prescribe a scan number — present the total and let the user choose.
-5. After the scan, **report the candidate gene count** ("N gene candidates found") and proceed to scoring without a second gate — scoring volume is already bounded at `4 × --max`.
+5. After the scan, **report the candidate gene count** ("N gene candidates found") and proceed to scoring without a second gate — scoring volume is already bounded at `5 × --max`.
 
 ### Result review + AI audit (optional, at scale)
 
@@ -178,7 +178,7 @@ Read the result file and **confirm the gene list with the user first**. When the
 
 For hundreds–1000 genes, skip per-gene literature summaries — collecting and summarizing 1000 abstracts is impractical and unnecessary for list accuracy. **The Phase 1 TSV (ranking · specificity · evidence PMIDs) is the final deliverable**; skip Phases 2–3 (optionally apply them only to a top-N).
 
-- Scale up `--scan` and `--max`. Scoring volume is `4 × --max` (no `--cand-pool` anymore), so `--max 1000` scores up to ~4,000 candidates automatically. Raise `--scan` well above `--max` (e.g. `--scan 3000` for `--max 1000`) so the candidate pool is deep enough to fill the target. PubTator makes 2 calls per scored candidate, so thousands take tens of minutes to hours — quote the estimate up front.
+- Scale up `--scan` and `--max`. Scoring volume is `5 × --max` (no `--cand-pool` anymore), so `--max 1000` scores up to ~5,000 candidates automatically. Raise `--scan` well above `--max` (e.g. `--scan 3000` for `--max 1000`) so the candidate pool is deep enough to fill the target. PubTator makes 2 calls per scored candidate, so thousands take tens of minutes to hours — quote the estimate up front.
 - Relax filters: at scale, recall comes first, so lower `--min-specificity` / `--min-co` to pass more through. The `spec_adj` sort still holds, so the top stays specific.
 - **Realistic ceiling**: a keyword may not have 1000 truly specific genes. Return only as many as pass, and tell the user that count (don't inflate it).
 

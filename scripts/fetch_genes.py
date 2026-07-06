@@ -52,9 +52,9 @@ ORGANISM_TAX = {"human": "Homo sapiens", "mouse": "Mus musculus", "rat": "Rattus
 # Score up to this many organism-matching candidates per requested gene. Scoring
 # is the dominant cost (2 PubTator calls each), so we cap it at a multiple of
 # --max rather than the whole scan: filters + organism drop candidates, so we
-# must attempt more than --max to end up with --max. ponytail: 4x is a heuristic;
+# must attempt more than --max to end up with --max. ponytail: 5x is a heuristic;
 # raise if runs routinely return fewer than --max after filtering.
-SCORE_MULTIPLE = 4
+SCORE_MULTIPLE = 5
 
 
 def slug(keyword):
@@ -149,6 +149,7 @@ def rank_gene_ids(search_term, scan_papers):
     pmids = pmids[:scan_papers]
 
     cnt = collections.Counter()
+    docs_with_gene = 0
     for i in range(0, len(pmids), 10):
         chunk = ",".join(pmids[i:i + 10])
         bio = json.loads(_get(f"{PUBTATOR}/publications/export/biocjson?pmids={chunk}"))
@@ -160,9 +161,13 @@ def rank_gene_ids(search_term, scan_papers):
                     gid = inf.get("identifier")
                     if inf.get("type") == "Gene" and gid:
                         seen.add(gid)
+            if seen:
+                docs_with_gene += 1
             for gid in seen:
                 cnt[gid] += 1
         time.sleep(0.4)
+    print(f"scan: {len(pmids)}/{scan_papers} papers fetched · {docs_with_gene} "
+          f"with gene tags · {len(cnt)} distinct genes (candidate pool)", file=sys.stderr)
     return cnt
 
 
@@ -254,16 +259,21 @@ def resolve_human(cnt, keyword, entity, organism, max_genes, min_spec, min_co, m
     cost and drops the long tail of one-off NER mistags before scoring.
     """
     want = ORGANISM_TAX.get(organism.lower(), organism)
-    picked = pick_candidates(cnt, want, SCORE_MULTIPLE * max_genes)
+    pool = SCORE_MULTIPLE * max_genes
+    picked = pick_candidates(cnt, want, pool)
+    print(f"organism filter: {len(cnt)} candidates -> {len(picked)} {organism} "
+          f"matches to score (cap {pool})", file=sys.stderr)
 
     rows = []
     all_scored = []  # every scored candidate, pre-filter, for the cutoff sidecar
+    n_zero = 0  # scored candidates with no papers at all (dropped before filter)
     for i, (gid, rec) in enumerate(picked):
         sym = rec.get("name", "")
         print(f"specificity [{i + 1}/{len(picked)}]: {sym}", file=sys.stderr)
         total, _ = _pubtator_count(gene_query(gid, entity))
         time.sleep(0.34)
         if total == 0:
+            n_zero += 1
             continue
         co, evidence_pmids = _pubtator_count(co_query(gid, keyword, entity))
         time.sleep(0.34)
@@ -277,6 +287,8 @@ def resolve_human(cnt, keyword, entity, organism, max_genes, min_spec, min_co, m
         if co < min_co or lower < min_spec:
             continue
         rows.append(row)
+    print(f"scored {len(all_scored)} · dropped {n_zero} (no papers) · "
+          f"passed filter {len(rows)} (min_co={min_co}, min_spec={min_spec})", file=sys.stderr)
     return rank_and_floor(rows, min_gene_papers)[:max_genes], rank_and_floor(all_scored, min_gene_papers)
 
 
@@ -305,7 +317,7 @@ def main():
                          "synonyms. Omit for novel terms with no MeSH entity.")
     ap.add_argument("--organism", default="human")
     ap.add_argument("--max", type=int, default=20,
-                    help="target gene count; also caps scoring at 4x this (SCORE_MULTIPLE)")
+                    help="target gene count; also caps scoring at 5x this (SCORE_MULTIPLE)")
     ap.add_argument("--scan", type=int, default=60,
                     help="how many keyword papers to scan for candidate genes")
     ap.add_argument("--min-specificity", type=float, default=0.05,

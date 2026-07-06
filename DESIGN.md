@@ -222,7 +222,7 @@ Two findings overturn Plan D: (1) free-text synonyms are **not** auto-normalized
 
 - **`spec_lower` → `spec_adj`** column rename (readability; "confidence-adjusted specificity"). Same Wilson-lower-bound semantics.
 - **Run directory** `output/<slug>/`: every artifact of one run co-located; `slug()` is the single source of truth (empty-slug → `kw-<md5>` fallback so non-ASCII keywords don't collide).
-- **Scoring bounded at `SCORE_MULTIPLE(4) × --max`** by co-mention, with **organism filtered first** (cheap batched esummary) before the 2-call scoring — replaces the manual `--cand-pool`. Co-mention prefilter doubles as an artifact cut.
+- **Scoring bounded at `SCORE_MULTIPLE(5) × --max`** by co-mention, with **organism filtered first** (cheap batched esummary) before the 2-call scoring — replaces the manual `--cand-pool`. Co-mention prefilter doubles as an artifact cut.
 - **Preflight** (entity `count` → scan-time estimate → `--scan`/`--organism` confirmation) before running; **pre-filter sidecar** `genes_all_scored.tsv` for data-driven cutoffs; **two-axis read** (`spec_adj` × `co_papers`) to surface pleiotropic hub genes the specificity cut buries.
 - **Fixed user-facing output blocks** per checkpoint (SKILL.md) for run-to-run consistency.
 - Validated by an external Codex adversarial pass (Design C meta rule): 2 FATAL found (empty-slug collapse, `--resolve` malformed-JSON crash) → fixed → 0 FATAL remaining.
