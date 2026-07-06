@@ -13,9 +13,10 @@ Every artifact of a single run lives under one **run directory** `output/<slug>/
 
 ```
 output/<slug>/
-  fetch_genes.log               # Phase 1 progress log (written live, tail -f)
+  phase1_fetch_genes.log        # Phase 1 progress log (A+B format, live, tail -f)
   genes.tsv                     # Phase 1 ranked list
   genes_all_scored.tsv          # Phase 1 pre-filter sidecar (auto)
+  phase2_fetch_pubmed.log       # Phase 2 progress log (A+B format, live)
   lit/<SYMBOL>.json             # Phase 2 abstracts, one file per gene
   gene_literature_review.md     # Phase 4 final document
 ```

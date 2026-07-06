@@ -44,22 +44,13 @@ import time
 import urllib.parse
 import urllib.request
 
+import runlog
+from runlog import info as log
+
 PUBTATOR = "https://www.ncbi.nlm.nih.gov/research/pubtator3-api"
 EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 
 ORGANISM_TAX = {"human": "Homo sapiens", "mouse": "Mus musculus", "rat": "Rattus norvegicus"}
-
-# Progress lines go to stderr and, once the run dir exists, are teed into
-# output/<slug>/fetch_genes.log so a finished run keeps its own trace next to
-# its TSVs. ponytail: module-global handle, fine for a single-run CLI.
-_LOG = None
-
-
-def log(msg):
-    print(msg, file=sys.stderr)
-    if _LOG:
-        _LOG.write(msg + "\n")
-        _LOG.flush()
 
 # Score up to this many organism-matching candidates per requested gene. Scoring
 # is the dominant cost (2 PubTator calls each), so we cap it at a multiple of
@@ -147,6 +138,7 @@ def entity_candidates(keyword, top=6):
 
 def rank_gene_ids(search_term, scan_papers):
     """Return GeneIDs ranked by mention frequency across the concept's papers."""
+    runlog.section("SCAN")
     q = urllib.parse.quote(search_term)
     pmids = []
     page = 1
@@ -160,9 +152,13 @@ def rank_gene_ids(search_term, scan_papers):
         time.sleep(0.3)
     pmids = pmids[:scan_papers]
 
+    log(f"scan: collected {len(pmids)} PMIDs, tagging genes...")
     cnt = collections.Counter()
     docs_with_gene = 0
     for i in range(0, len(pmids), 10):
+        if i % 100 == 0:  # progress every 100 papers (chunks are 10 each)
+            log(f"scan: tagging {i}/{len(pmids)} papers "
+                f"· {len(cnt)} distinct genes so far")
         chunk = ",".join(pmids[i:i + 10])
         bio = json.loads(_get(f"{PUBTATOR}/publications/export/biocjson?pmids={chunk}"))
         for doc in bio.get("PubTator3", []):
@@ -270,12 +266,14 @@ def resolve_human(cnt, keyword, entity, organism, max_genes, min_spec, min_co, m
     co-mention) are scored -- the co-mention prefilter both bounds the dominant
     cost and drops the long tail of one-off NER mistags before scoring.
     """
+    runlog.section("FILTER")
     want = ORGANISM_TAX.get(organism.lower(), organism)
     pool = SCORE_MULTIPLE * max_genes
     picked = pick_candidates(cnt, want, pool)
     log(f"organism filter: {len(cnt)} candidates -> {len(picked)} {organism} "
         f"matches to score (cap {pool})")
 
+    runlog.section("SCORE")
     rows = []
     all_scored = []  # every scored candidate, pre-filter, for the cutoff sidecar
     n_zero = 0  # scored candidates with no papers at all (dropped before filter)
@@ -364,12 +362,9 @@ def main():
     out = args.out or os.path.join("output", slug(args.keyword), "genes.tsv")
 
     # Create the run dir and open the log BEFORE any work, so output/<slug>/
-    # appears immediately and fetch_genes.log fills line-by-line (log() flushes)
+    # appears immediately and the phase log fills line-by-line (info() flushes)
     # -- the run can be watched live via `tail -f`.
-    run_dir = os.path.dirname(out) or "."
-    os.makedirs(run_dir, exist_ok=True)
-    global _LOG
-    _LOG = open(os.path.join(run_dir, "fetch_genes.log"), "w", encoding="utf-8")
+    runlog.open_log(os.path.dirname(out) or ".", "phase1_fetch_genes.log")
 
     cnt = rank_gene_ids(search_text(args.keyword, args.entity), args.scan)
     if not cnt:
@@ -383,6 +378,7 @@ def main():
     root, ext = os.path.splitext(out)
     all_path = f"{root}_all_scored{ext or '.tsv'}"
     write_tsv(all_path, all_scored)
+    runlog.section("RESULT")
     log(f"{len(genes)} genes -> {out}")
     log(f"{len(all_scored)} scored (pre-filter) -> {all_path}")
     for g in genes:

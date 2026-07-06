@@ -10,11 +10,13 @@ import argparse
 import csv
 import json
 import os
-import sys
 import time
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
+
+import runlog
+from runlog import info as log
 
 EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 
@@ -86,11 +88,16 @@ def main():
     # and the slug (owned by fetch_genes.py) is never re-derived here.
     out_dir = args.out_dir or os.path.join(os.path.dirname(args.genes) or ".", "lit")
 
+    # Log into the run dir (parent of lit/) so scan + literature share a folder.
+    runlog.open_log(os.path.dirname(out_dir) or ".", "phase2_fetch_pubmed.log")
+
     with open(args.genes, encoding="utf-8", newline="") as f:
         genes = list(csv.DictReader(f, delimiter="\t"))
     os.makedirs(out_dir, exist_ok=True)
 
-    for g in genes:
+    runlog.section("COLLECT")
+    log(f"{len(genes)} genes · top {args.per_gene} papers each -> {out_dir}")
+    for i, g in enumerate(genes):
         sym = g["symbol"]
         pmids = search_pmids(sym, args.keyword, args.per_gene)
         _sleep()
@@ -101,7 +108,10 @@ def main():
             json.dump({"symbol": sym, "name": g.get("name", ""), "papers": recs},
                       f, ensure_ascii=False, indent=2)
         n_ft = sum(1 for r in recs if r["access"] == "full-text")
-        print(f"{sym}: {len(recs)} papers ({n_ft} full-text) -> {out}", file=sys.stderr)
+        log(f"[{i + 1}/{len(genes)}] {sym}: {len(recs)} papers ({n_ft} full-text) -> {out}")
+
+    runlog.section("RESULT")
+    log(f"done: {len(genes)} genes -> {out_dir}")
 
 
 if __name__ == "__main__":
