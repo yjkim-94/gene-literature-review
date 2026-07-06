@@ -28,9 +28,11 @@ The goal is to prevent this skill's two biggest risks.
 1. **Token blow-up**: putting gene × paper × abstract text into context makes cost grow quadratically with gene count. → **A script fetches the abstract text into files, not the LLM.** Raw abstract text is never loaded into the main context.
 2. **Hallucination (invented papers / distorted summaries)**: literature review easily fabricates unread papers or misrepresents abstracts. → **Every claim cites a real PMID**, and each carries a label for how far the text was read (**abstract-only / full-text**).
 
-## User-facing output format (fixed — use verbatim every run)
+## User-facing output format (each block fixed — same every session)
 
-Every checkpoint shown to the user uses the **same block**: a `■ Phase N · <단계>` header, aligned `라벨 : 값` lines, and an optional `⚠` / `→` line. **Put a blank line between logical groups** (header ↔ 값 ↔ caveat/prompt) so each block breathes. Fill the blanks; do not vary the structure, labels, or order between runs (consistency across runs is the whole point). Labels stay Korean; machine tokens (paths, `spec_adj`, `--max`) stay literal. These fire **one at a time** across the run (never stacked), separated by the user's replies.
+Each checkpoint uses the block defined for **that phase** below: a `■ Phase N · <단계>` header, aligned `라벨 : 값` lines, and an optional `⚠` / `→` line. **Put a blank line between logical groups** (header ↔ 값 ↔ caveat/prompt) so each block breathes. Fill the blanks; keep each phase's own structure, labels, and order identical across sessions (cross-session consistency is the point — the phases are *not* required to match one another). Labels stay Korean; machine tokens (paths, `spec_adj`, `--max`) stay literal. These fire **one at a time** across the run (never stacked), separated by the user's replies.
+
+**Decision points (blocks ending in a `→` prompt that asks the user to choose or confirm) → use the `AskUserQuestion` tool.** Show the `■` block first as the context, then raise the actual choice through `AskUserQuestion` so the options are clickable (e.g. Query gate: the canonical/concept candidates; Phase 4: `.docx` 변환 여부). If `AskUserQuestion` is unavailable, fall back to the plain block — but in that case **spell out the alternatives** on/after the `→` line (which other concept candidates exist, yes/no, etc.), never just an open-ended "진행할까요?". Info-only blocks (Preflight, Scan 완료, 문헌 수집·요약·통합 완료) are not decision points — print them as-is.
 
 ```
 ■ Phase 1 · Query gate
