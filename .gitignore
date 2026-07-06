@@ -5,6 +5,10 @@ __pycache__/
 # runtime outputs (per-run gene lists / abstracts)
 output/
 
+# eval harness runtime artifacts (OpenTargets gold cache, per-run bench reports)
+evals/.gt_cache/
+evals/output/
+
 # OS / editor
 .DS_Store
 *.tmp
