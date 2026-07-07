@@ -4,7 +4,7 @@
 # ============================================================================
 # Author:      yjkim
 # Purpose:     Benchmark CDRS ranking formulas against OpenTargets genetic gold.
-# Description: Recomputes six rankings offline from genes_all_scored.tsv columns
+# Description: Recomputes seven rankings offline from genes_all_scored.tsv columns
 #              and scores each ranking with P@10, P@20, nDCG@20, and AUPRC.
 #              CDRS weights are PLACEHOLDER values from method_dev_REFERENCE.md
 #              and are intentionally labeled as such in the report.
@@ -53,6 +53,7 @@ RANKING_ORDER = (
     "co_papers",
     "specificity",
     "spec_adj",
+    "spec_adj_artifact",
     "enrichment_z",
     "z_rel",
     "cdrs_rank_score",
@@ -171,6 +172,7 @@ def compute_rankings(rows, disease_total, n_universe=N_UNIVERSE):
             "co_papers": [],
             "specificity": [],
             "spec_adj": [],
+            "spec_adj_artifact": [],
             "enrichment_z": [],
             "z_rel": [],
             "cdrs_rank_score": [],
@@ -180,6 +182,10 @@ def compute_rankings(rows, disease_total, n_universe=N_UNIVERSE):
     gene_papers = [row["gene_papers"] for row in rows]
     specificity = [row["specificity"] for row in rows]
     spec_adj = [row["spec_adj"] for row in rows]
+    spec_adj_artifact = [
+        _artifact_weight(row) * row["spec_adj"]
+        for row in rows
+    ]
     z_rel = [row["z_rel"] for row in rows]
     logfe = [
         _logfe(co_papers[index], gene_papers[index], disease_total, n_universe)
@@ -217,6 +223,7 @@ def compute_rankings(rows, disease_total, n_universe=N_UNIVERSE):
         "co_papers": order_by(co_papers),
         "specificity": order_by(specificity),
         "spec_adj": order_by(spec_adj),
+        "spec_adj_artifact": order_by(spec_adj_artifact),
         "enrichment_z": order_by(enrichment_z),
         "z_rel": order_by(z_rel),
         "cdrs_rank_score": order_by(cdrs_rank_score),
@@ -554,7 +561,7 @@ def _selftest():
             "co_papers": 30,
             "gene_papers": 200,
             "specificity": 0.15,
-            "spec_adj": 0.11,
+            "spec_adj": 0.13,
             "z_rel": 4.0,
             "breadth_random": 0.0,
             "hub_penalty": 1.0,
@@ -566,10 +573,14 @@ def _selftest():
         "co_papers",
         "specificity",
         "spec_adj",
+        "spec_adj_artifact",
         "enrichment_z",
         "z_rel",
         "cdrs_rank_score",
     }
+    assert "spec_adj_artifact" in rankings
+    assert rankings["spec_adj"].index("IGHE") < rankings["spec_adj"].index("A")
+    assert rankings["spec_adj_artifact"].index("IGHE") > rankings["spec_adj_artifact"].index("A")
 
     def fake_scores(base):
         return {
