@@ -1,22 +1,26 @@
 <title>gene-literature-review — 동작 원리</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <style>
   :root{
-    --ink:#0a1413; --ink2:#0e1c1a; --panel:#102523; --panel2:#143230;
-    --line:#20423e; --line2:#2c5a54;
-    --sig:#3fe0c9; --sig-dim:#1d8577; --sig-glow:rgba(63,224,201,.35);
-    --warn:#ff6a52; --warn-dim:#7d2e26; --warn-glow:rgba(255,106,82,.30);
-    --amber:#f2b03c;
-    --txt:#e2f1ee; --mut:#7fa39d; --mut2:#5c807a;
-    --mono:ui-monospace,"Cascadia Code","JetBrains Mono","SF Mono",Menlo,Consolas,monospace;
-    --sans:"Pretendard Variable",Pretendard,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    /* Vantage Design System — applied (indigo primary · coral/danger accent · cool-gray neutrals, light) */
+    --ink:#F6F7FB; --ink2:#FFFFFF; --panel:#FFFFFF; --panel2:#EEF0F5;
+    --line:#E6E9F0; --line2:#DEE2EC;
+    --sig:#4E5BDC; --sig-dim:#7C87E9; --sig-glow:rgba(78,91,220,.22);
+    --warn:#F0603E; --warn-dim:#F9A88F; --warn-glow:rgba(240,96,62,.22);
+    --amber:#E1920B;
+    --txt:#1E2130; --mut:#565D7E; --mut2:#7A8199;
+    --mono:'IBM Plex Mono',ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --sans:'Pretendard Variable',Pretendard,ui-sans-serif,system-ui,-apple-system,"Segoe UI","Malgun Gothic",sans-serif;
+    --shadow-card:0 4px 16px rgba(30,33,48,.06); --shadow-hover:0 10px 28px rgba(30,33,48,.10);
   }
   *{box-sizing:border-box}
   html,body{margin:0}
   body{
     background:
-      radial-gradient(1200px 600px at 80% -10%, #0f2422 0%, transparent 60%),
-      radial-gradient(900px 500px at 0% 110%, #10201c 0%, transparent 55%),
+      radial-gradient(1200px 600px at 80% -10%, #EDEFFE 0%, transparent 60%),
+      radial-gradient(900px 500px at 0% 110%, #FDECE6 0%, transparent 55%),
       var(--ink);
     color:var(--txt); font-family:var(--sans);
     -webkit-font-smoothing:antialiased; line-height:1.5;
@@ -47,8 +51,8 @@
   .step.active .n{color:var(--sig)} .step.active .t{color:var(--txt)}
 
   /* ---- stage viewport ---- */
-  .stage{position:relative; border:1px solid var(--line); border-radius:14px;
-    background:linear-gradient(180deg,var(--ink2),var(--ink)); min-height:430px; overflow:hidden}
+  .stage{position:relative; border:1px solid var(--line); border-radius:16px;
+    background:linear-gradient(180deg,var(--ink2),var(--ink)); min-height:430px; overflow:hidden; box-shadow:var(--shadow-card)}
   .scene{position:absolute; inset:0; padding:26px 26px; opacity:0; transform:translateY(10px); pointer-events:none;
     transition:opacity .45s ease, transform .45s ease; display:flex; flex-direction:column}
   .scene.on{opacity:1; transform:none; pointer-events:auto}
@@ -59,10 +63,10 @@
   .body{flex:1; display:flex; align-items:center; margin-top:6px}
 
   .chip{font-family:var(--mono); font-size:13px; padding:5px 10px; border-radius:7px; border:1px solid var(--line2); background:var(--panel); white-space:nowrap}
-  .chip.sig{border-color:var(--sig-dim); color:var(--sig); box-shadow:0 0 0 1px rgba(63,224,201,.06) inset}
+  .chip.sig{border-color:var(--sig-dim); color:var(--sig); background:var(--brand-tint,#F1F3FE); box-shadow:0 0 0 1px rgba(78,91,220,.06) inset}
   .chip.warn{border-color:var(--warn-dim); color:var(--warn)}
   .arrow{color:var(--mut2); font-family:var(--mono)}
-  .note{border:1px solid var(--line); border-radius:9px; padding:11px 13px; background:rgba(255,255,255,.015)}
+  .note{border:1px solid var(--line); border-radius:9px; padding:11px 13px; background:rgba(78,91,220,.035)}
   .note .h{font-size:12px; font-family:var(--mono); letter-spacing:.02em; margin-bottom:3px}
   .note p{margin:0; font-size:12.5px; color:var(--mut)}
   .ok{color:var(--sig)} .bad{color:var(--warn)} .amb{color:var(--amber)}
@@ -86,7 +90,7 @@
   /* scene3 assay: string vs entity */
   .assay{display:grid; grid-template-columns:1fr 1fr; gap:16px; width:100%}
   @media(max-width:680px){.assay{grid-template-columns:1fr}}
-  .col{border:1px solid var(--line); border-radius:11px; padding:15px; background:var(--panel)}
+  .col{border:1px solid var(--line); border-radius:11px; padding:15px; background:var(--panel); box-shadow:var(--shadow-card)}
   .col.danger{border-color:var(--warn-dim)}
   .col.good{border-color:var(--sig-dim)}
   .col .tag{font-family:var(--mono); font-size:11px; letter-spacing:.05em; text-transform:uppercase}
@@ -94,14 +98,14 @@
   .papers{display:flex; flex-wrap:wrap; gap:5px; min-height:64px}
   .pp{width:15px;height:19px;border-radius:2px;border:1px solid var(--line2);background:var(--panel2); opacity:0}
   .scene.on .pp{animation:pop .28s ease forwards}
-  .pp.junk{border-color:var(--warn-dim); background:rgba(255,106,82,.14)}
-  .pp.real{border-color:var(--sig-dim); background:rgba(63,224,201,.14)}
+  .pp.junk{border-color:var(--warn-dim); background:rgba(240,96,62,.12)}
+  .pp.real{border-color:var(--sig-dim); background:rgba(78,91,220,.12)}
   @keyframes pop{from{opacity:0;transform:scale(.4)}to{opacity:1;transform:none}}
   .verdict{margin-top:10px; font-size:12.5px; font-family:var(--mono)}
 
   /* stats strip */
   .stats{display:flex; gap:14px; flex-wrap:wrap; width:100%; margin-top:18px; align-items:stretch}
-  .stat{flex:1 1 150px; border:1px solid var(--line); border-radius:10px; padding:12px 13px; background:var(--panel)}
+  .stat{flex:1 1 150px; border:1px solid var(--line); border-radius:10px; padding:12px 13px; background:var(--panel); box-shadow:var(--shadow-card)}
   .stat .k{font-size:11px; font-family:var(--mono); color:var(--mut); letter-spacing:.03em}
   .stat .v{font-family:var(--mono); font-size:22px; margin-top:4px; color:var(--sig)}
   .stat .v small{font-size:12px; color:var(--mut2)}
@@ -138,7 +142,7 @@
   /* scene6 matrix */
   .m6{display:grid; grid-template-columns:1fr 1fr; gap:16px; width:100%}
   @media(max-width:680px){.m6{grid-template-columns:1fr}}
-  .card{border:1px solid var(--line); border-radius:11px; padding:15px; background:var(--panel)}
+  .card{border:1px solid var(--line); border-radius:11px; padding:15px; background:var(--panel); box-shadow:var(--shadow-card)}
   .card h3{margin:0 0 10px; font-size:12px; font-family:var(--mono); letter-spacing:.04em; text-transform:uppercase}
   .card.fail h3{color:var(--warn)} .card.def h3{color:var(--sig)}
   .li{display:flex; gap:10px; padding:7px 0; border-top:1px solid var(--line); font-size:13px}
@@ -146,7 +150,7 @@
   .li .ic{font-family:var(--mono); flex:none}
   .li b{font-weight:600}
   .li span{color:var(--mut); font-size:12px}
-  .invariant{margin-top:14px; border:1px solid var(--sig-dim); border-radius:9px; padding:11px 13px; background:rgba(63,224,201,.05); font-size:13px}
+  .invariant{margin-top:14px; border:1px solid var(--sig-dim); border-radius:9px; padding:11px 13px; background:rgba(78,91,220,.05); font-size:13px}
   .invariant b{color:var(--sig); font-family:var(--mono)}
 
   /* ---- controls ---- */
@@ -169,7 +173,7 @@
 
   .io{display:grid; grid-template-columns:1fr auto 1.2fr; gap:16px; align-items:stretch}
   @media(max-width:680px){.io{grid-template-columns:1fr}}
-  .io-card{border:1px solid var(--line); border-radius:13px; padding:18px; background:var(--panel); display:flex; flex-direction:column}
+  .io-card{border:1px solid var(--line); border-radius:13px; padding:18px; background:var(--panel); display:flex; flex-direction:column; box-shadow:var(--shadow-card)}
   .io-card.out{border-color:var(--sig-dim)}
   .io-lab{font-family:var(--mono); font-size:11px; letter-spacing:.06em; color:var(--mut); text-transform:uppercase}
   .io-key{font-family:var(--mono); font-size:clamp(24px,4vw,32px); color:var(--warn); margin:14px 0 6px; font-weight:600}
