@@ -46,6 +46,18 @@ def test_below_floor_genes_kept_not_deleted():
     assert len(ranked) == 2  # demoted, not dropped
 
 
+def test_artifact_weight_demotes_equal_spec_artifact_only():
+    rows = [
+        {"symbol": "IGHE", "co_papers": 50, "gene_papers": 100, "spec_adj": 0.5},
+        {"symbol": "FLG", "co_papers": 50, "gene_papers": 100, "spec_adj": 0.5},
+        {"symbol": "IL13", "co_papers": 80, "gene_papers": 100, "spec_adj": 0.8},
+    ]
+    ranked = rank_and_floor(rows, min_gene_papers=10)
+    order = [r["symbol"] for r in ranked]
+    assert order == ["IL13", "FLG", "IGHE"], order
+    assert not fetch_genes.is_artifact("IL13")
+
+
 def test_entity_query_quotes_both_tokens_freetext_fallback():
     # entity present -> both tokens quoted (unquoted colon 400s on PubTator)
     assert co_query("2312", "atopic dermatitis", "@DISEASE_MESH:D003876") == \
@@ -179,7 +191,7 @@ def test_cdrs_cache_flushes_before_return_and_after_failure():
         assert "1\t@DISEASE_B\t4\n" in saved
 
 
-def test_spec_tsv_columns_unchanged_without_cdrs():
+def test_spec_tsv_columns_include_artifact_without_cdrs():
     rows = [_row("CORE", 140, 400)]
     rows[0].update({
         "gene_id": "1",
@@ -191,19 +203,24 @@ def test_spec_tsv_columns_unchanged_without_cdrs():
     with tempfile.TemporaryDirectory() as td:
         path = os.path.join(td, "genes.tsv")
         fetch_genes.write_tsv(path, rows)
-        header = open(path, encoding="utf-8").readline().rstrip("\n").split("\t")
+        lines = open(path, encoding="utf-8").read().splitlines()
+        header = lines[0].split("\t")
+        values = lines[1].split("\t")
     assert header == fetch_genes.TSV_COLS
+    assert header[header.index("artifact")] == "artifact"
+    assert values[header.index("artifact")] == "false"
 
 
 if __name__ == "__main__":
     test_tiny_n_artifact_ranks_below_core_gene()
     test_specific_but_less_studied_core_gene_stays_on_top()
     test_below_floor_genes_kept_not_deleted()
+    test_artifact_weight_demotes_equal_spec_artifact_only()
     test_entity_query_quotes_both_tokens_freetext_fallback()
     test_entity_candidates_parse_and_novel_fallback()
     test_slug_never_empty_and_isolates_non_ascii()
     test_co_and_total_use_same_gene_form()
     test_wilson_lower_bounds_and_degenerate()
     test_cdrs_cache_flushes_before_return_and_after_failure()
-    test_spec_tsv_columns_unchanged_without_cdrs()
+    test_spec_tsv_columns_include_artifact_without_cdrs()
     print("ok: floor + wilson_lower demote tiny-n artifacts, keep specific core genes on top")

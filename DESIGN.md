@@ -21,6 +21,9 @@ Literature review is not for per-gene narrative summaries — it is the **eviden
 2. **Compute specificity on an entity basis + statistical correction.** Align the identity basis of discovery
    (PubTator GeneID) and ranking (설계 C), and rank by **denominator floor + Wilson lower bound** rather than the point
    estimate (설계 D). The old `"<sym>"[tiab]` string matching and raw-ratio sort must be dropped.
+   Default ranking is `spec_adj` with a 0.5x demotion for immunoglobulin/TCR/HLA structural genes, validated in
+   `docs/cdrs-eval-findings.md`; these are recurrent literature artifacts (e.g. IGHE for atopic dermatitis), not
+   disease-driver genes.
 
 ---
 

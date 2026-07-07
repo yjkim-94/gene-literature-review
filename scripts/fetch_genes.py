@@ -12,7 +12,11 @@ Genes are ranked by keyword-specificity computed on a PubTator ENTITY basis
 (@GENE_<id> co-occurrence counts), not tiab string matching -- so a common-word
 symbol like CAT is the catalase entity, never the word "cat". Ranking uses the
 Wilson lower bound of that proportion so a high ratio from a handful of papers
-can't outrank a real core gene backed by hundreds. See DESIGN.md (설계 C/D).
+can't outrank a real core gene backed by hundreds. The default sort also applies
+a 0.5x demotion to immunoglobulin/TCR/HLA structural symbols, a strict
+no-downside improvement validated in docs/cdrs-eval-findings.md; these recurrent
+literature artifacts (e.g. IGHE for atopic dermatitis) are demoted, not dropped.
+See DESIGN.md (설계 C/D).
 
 The KEYWORD side can also be an entity: pass --entity @DISEASE_MESH:<id> (from
 the query gate's MeSH resolution) and both discovery and the co-occurrence
@@ -22,8 +26,8 @@ those synonyms collapses the PubTator parser (measured). Without --entity it
 falls back to free-text --keyword (novel terms with no MeSH, e.g. cuproptosis).
 
 Writes a tab-separated table (symbol, gene_id, name, co_papers, gene_papers,
-specificity, spec_adj, below_floor, evidence_pmids) to --out -- opens cleanly
-in Excel. evidence_pmids is ";"-joined. A sidecar <out>_all_scored.tsv holds
+specificity, spec_adj, below_floor, artifact, evidence_pmids) to --out -- opens
+cleanly in Excel. evidence_pmids is ";"-joined. A sidecar <out>_all_scored.tsv holds
 every scored candidate BEFORE the min_co/min_specificity filter, so the cutoff
 can be set from the real spec_adj distribution instead of guessed.
 
@@ -432,7 +436,7 @@ def assign_tracks(rows, t_emp, min_co, min_gene_papers):
 
 
 def rank_and_floor(rows, min_gene_papers):
-    """Order rows by specificity lower bound, demoting tiny-denominator genes.
+    """Order rows by specificity lower bound, demoting known artifact symbols.
 
     The Wilson lower bound alone is not enough: 3/3 scores ~0.44, still above a
     real 140/400 core gene (~0.31). So genes with fewer than min_gene_papers
@@ -445,7 +449,13 @@ def rank_and_floor(rows, min_gene_papers):
     """
     for r in rows:
         r["below_floor"] = r["gene_papers"] < min_gene_papers
-    rows.sort(key=lambda r: (not r["below_floor"], r["spec_adj"]), reverse=True)
+    rows.sort(
+        key=lambda r: (
+            not r["below_floor"],
+            (0.5 if is_artifact(r["symbol"]) else 1.0) * r["spec_adj"],
+        ),
+        reverse=True,
+    )
     return rows
 
 
@@ -536,15 +546,12 @@ def resolve_human(cnt, keyword, entity, organism, max_genes, min_spec, min_co, m
 
 
 TSV_COLS = ["symbol", "gene_id", "name", "co_papers", "gene_papers",
-            "specificity", "spec_adj", "below_floor", "evidence_pmids"]
+            "specificity", "spec_adj", "below_floor", "artifact", "evidence_pmids"]
 
 
 def write_tsv(path, genes):
     # CDRS columns appear only when --rank cdrs populated them (observe mode);
-    # the spec path writes exactly the original columns, so nothing downstream
-    # of the default run changes.
-    # Extra CDRS/Stage3 columns appear only when --rank cdrs populated them; the
-    # spec path writes exactly the original columns, unchanged.
+    # the default spec path now adds only the explicit artifact marker.
     extra = [c for c in CDRS_COLS + STAGE3_COLS if genes and c in genes[0]]
     with open(path, "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f, delimiter="\t")
@@ -552,7 +559,9 @@ def write_tsv(path, genes):
         for g in genes:
             row = [g["symbol"], g["gene_id"], g["name"], g["co_papers"],
                    g["gene_papers"], g["specificity"], g["spec_adj"],
-                   str(g["below_floor"]).lower(), ";".join(g["evidence_pmids"])]
+                   str(g["below_floor"]).lower(),
+                   str(is_artifact(g["symbol"])).lower(),
+                   ";".join(g["evidence_pmids"])]
             row += [g[c] for c in extra]
             w.writerow(row)
 
