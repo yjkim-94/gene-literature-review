@@ -27,10 +27,16 @@ XML = """<PubmedArticleSet><PubmedArticle>
       </Abstract>
     </Article>
   </MedlineCitation>
-  <PubmedData><ArticleIdList>
-    <ArticleId IdType="pubmed">34106037</ArticleId>
-    <ArticleId IdType="pmc">PMC8000000</ArticleId>
-  </ArticleIdList></PubmedData>
+  <PubmedData>
+    <ArticleIdList>
+      <ArticleId IdType="pubmed">34106037</ArticleId>
+      <ArticleId IdType="pmc">PMC8000000</ArticleId>
+    </ArticleIdList>
+    <ReferenceList><Reference><ArticleIdList>
+      <ArticleId IdType="pubmed">99999999</ArticleId>
+      <ArticleId IdType="pmc">PMC9999999</ArticleId>
+    </ArticleIdList></Reference></ReferenceList>
+  </PubmedData>
 </PubmedArticle></PubmedArticleSet>"""
 
 
@@ -44,7 +50,9 @@ def test_inline_markup_text_not_dropped():
     assert "itch signaling" in r["abstract"], r["abstract"]
     assert r["abstract"], "abstract must not be empty"
     assert "IL31" in r["title"], r["title"]
-    assert r["access"] == "full-text" and r["pmcid"] == "PMC8000000"
+    # pmcid must be the ARTICLE's own (PMC8000000), never the ReferenceList decoy
+    # (PMC9999999) that a descendant .//ArticleId scan would wrongly pick up.
+    assert r["access"] == "full-text" and r["pmcid"] == "PMC8000000", r["pmcid"]
 
 
 def test_empty_and_missing():

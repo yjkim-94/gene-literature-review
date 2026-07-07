@@ -67,8 +67,13 @@ def parse_pubmed_xml(xml_text):
         abstract = " ".join("".join(t.itertext()) for t in art.findall(".//Abstract/AbstractText")).strip()
         year = art.findtext(".//PubDate/Year", "") or art.findtext(".//PubDate/MedlineDate", "")
         journal = art.findtext(".//Journal/Title", "") or ""
+        # ./PubmedData/ArticleIdList, NOT .//ArticleId: efetch returns the article
+        # PLUS its full ReferenceList, and every cited reference carries its own
+        # <ArticleId IdType="pmc">. A descendant scan picks up a reference's PMC and
+        # mislabels access as full-text (measured: PMID 40563478's own PMC12190253
+        # was overwritten by a reference's; PMID 38724781 has no PMC yet got one).
         pmcid = None
-        for aid in art.findall(".//ArticleId"):
+        for aid in art.findall("./PubmedData/ArticleIdList/ArticleId"):
             if aid.get("IdType") == "pmc":
                 pmcid = aid.text
         recs.append({
