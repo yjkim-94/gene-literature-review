@@ -49,6 +49,13 @@ REQUIRED_COLUMNS = (
     "hub_penalty",
     "track",
 )
+SPEC_ONLY_REQUIRED_COLUMNS = (
+    "symbol",
+    "co_papers",
+    "gene_papers",
+    "specificity",
+    "spec_adj",
+)
 RANKING_ORDER = (
     "co_papers",
     "specificity",
@@ -57,6 +64,13 @@ RANKING_ORDER = (
     "enrichment_z",
     "z_rel",
     "cdrs_rank_score",
+)
+SPEC_ONLY_RANKING_ORDER = (
+    "co_papers",
+    "specificity",
+    "spec_adj",
+    "spec_adj_artifact",
+    "enrichment_z",
 )
 METRIC_ORDER = ("P@10", "P@20", "nDCG@20", "AUPRC")
 
@@ -165,18 +179,15 @@ def _artifact_weight(row):
     return 1.0
 
 
-def compute_rankings(rows, disease_total, n_universe=N_UNIVERSE):
+def ranking_order_for_mode(spec_only=False):
+    return SPEC_ONLY_RANKING_ORDER if spec_only else RANKING_ORDER
+
+
+def compute_rankings(rows, disease_total, n_universe=N_UNIVERSE, spec_only=False):
     """Return ranking name -> ranked symbols, derived only from scored columns."""
+    ranking_order = ranking_order_for_mode(spec_only)
     if not rows:
-        return {
-            "co_papers": [],
-            "specificity": [],
-            "spec_adj": [],
-            "spec_adj_artifact": [],
-            "enrichment_z": [],
-            "z_rel": [],
-            "cdrs_rank_score": [],
-        }
+        return {name: [] for name in ranking_order}
 
     co_papers = [row["co_papers"] for row in rows]
     gene_papers = [row["gene_papers"] for row in rows]
@@ -186,30 +197,10 @@ def compute_rankings(rows, disease_total, n_universe=N_UNIVERSE):
         _artifact_weight(row) * row["spec_adj"]
         for row in rows
     ]
-    z_rel = [row["z_rel"] for row in rows]
-    logfe = [
-        _logfe(co_papers[index], gene_papers[index], disease_total, n_universe)
-        for index in range(len(rows))
-    ]
     enrichment_z = [
         _enrichment_z(co_papers[index], gene_papers[index], disease_total, n_universe)
         for index in range(len(rows))
     ]
-
-    p_z_rel = _percentiles(z_rel)
-    p_spec_adj = _percentiles(spec_adj)
-    p_logfe = _percentiles(logfe)
-
-    cdrs_rank_score = []
-    for index, row in enumerate(rows):
-        weighted_sum = (
-            PLACEHOLDER_WEIGHTS["z_rel"] * p_z_rel[index]
-            + PLACEHOLDER_WEIGHTS["spec_adj"] * p_spec_adj[index]
-            + PLACEHOLDER_WEIGHTS["logFE"] * p_logfe[index]
-        )
-        cdrs_rank_score.append(
-            _artifact_weight(row) * row["hub_penalty"] * weighted_sum
-        )
 
     def order_by(values):
         order = sorted(
@@ -219,28 +210,50 @@ def compute_rankings(rows, disease_total, n_universe=N_UNIVERSE):
         )
         return [rows[index]["symbol"] for index in order]
 
-    return {
+    rankings = {
         "co_papers": order_by(co_papers),
         "specificity": order_by(specificity),
         "spec_adj": order_by(spec_adj),
         "spec_adj_artifact": order_by(spec_adj_artifact),
         "enrichment_z": order_by(enrichment_z),
-        "z_rel": order_by(z_rel),
-        "cdrs_rank_score": order_by(cdrs_rank_score),
     }
+    if not spec_only:
+        z_rel = [row["z_rel"] for row in rows]
+        logfe = [
+            _logfe(co_papers[index], gene_papers[index], disease_total, n_universe)
+            for index in range(len(rows))
+        ]
+        p_z_rel = _percentiles(z_rel)
+        p_spec_adj = _percentiles(spec_adj)
+        p_logfe = _percentiles(logfe)
+
+        cdrs_rank_score = []
+        for index, row in enumerate(rows):
+            weighted_sum = (
+                PLACEHOLDER_WEIGHTS["z_rel"] * p_z_rel[index]
+                + PLACEHOLDER_WEIGHTS["spec_adj"] * p_spec_adj[index]
+                + PLACEHOLDER_WEIGHTS["logFE"] * p_logfe[index]
+            )
+            cdrs_rank_score.append(
+                _artifact_weight(row) * row["hub_penalty"] * weighted_sum
+            )
+        rankings["z_rel"] = order_by(z_rel)
+        rankings["cdrs_rank_score"] = order_by(cdrs_rank_score)
+    return rankings
 
 
 # ============================================================================
 # IO
 # ============================================================================
-def load_scored(path):
+def load_scored(path, spec_only=False):
+    required_columns = SPEC_ONLY_REQUIRED_COLUMNS if spec_only else REQUIRED_COLUMNS
     warnings = []
     with open(path, encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle, delimiter="\t")
         rows = []
         for row_index, raw_row in enumerate(reader, start=2):
             row = {key: (value or "") for key, value in raw_row.items()}
-            missing = [key for key in REQUIRED_COLUMNS if key not in row]
+            missing = [key for key in required_columns if key not in row]
             if missing:
                 warnings.append(
                     f"line {row_index}: missing columns defaulted: {', '.join(missing)}"
@@ -261,14 +274,17 @@ def load_scored(path):
     return rows, warnings
 
 
-def ensure_scored(disease):
+def ensure_scored(disease, spec_only=False):
     out_path = os.path.join(ROOT, "output", fg.slug(disease["keyword"]), "genes.tsv")
     scored_path = out_path.replace("genes.tsv", "genes_all_scored.tsv")
     if os.path.exists(scored_path):
+        if spec_only:
+            return scored_path
         with open(scored_path, encoding="utf-8") as handle:
             if "z_rel" in handle.readline().rstrip("\n").split("\t"):
                 return scored_path
 
+    rank_mode = "spec" if spec_only else "cdrs"
     command = [
         sys.executable,
         os.path.join(ROOT, "scripts", "fetch_genes.py"),
@@ -283,11 +299,11 @@ def ensure_scored(disease):
         "--scan",
         str(disease["scan"]),
         "--rank",
-        "cdrs",
+        rank_mode,
         "--out",
         out_path,
     ]
-    print(f"running fetch_genes --rank cdrs for '{disease['keyword']}'")
+    print(f"running fetch_genes --rank {rank_mode} for '{disease['keyword']}'")
     subprocess.run(command, check=True)
     return scored_path
 
@@ -311,8 +327,18 @@ def score_rankings(rankings, gold):
     }
 
 
-def render_report(disease, rows, rankings, scores, gt, disease_total, warnings=None):
+def render_report(
+    disease,
+    rows,
+    rankings,
+    scores,
+    gt,
+    disease_total,
+    warnings=None,
+    spec_only=False,
+):
     warnings = warnings or []
+    ranking_order = ranking_order_for_mode(spec_only)
     gold = gt["gold"]
     candidates = {row["symbol"] for row in rows}
     gold_in_candidates = sorted(gold & candidates)
@@ -341,16 +367,21 @@ def render_report(disease, rows, rankings, scores, gt, disease_total, warnings=N
         f"- candidates scored: {len(rows)}; gold intersect candidates: "
         f"{len(gold_in_candidates)}",
         f"- M_D={disease_total}, N={N_UNIVERSE:.0f}",
-        f"- CDRS PLACEHOLDER_WEIGHTS={PLACEHOLDER_WEIGHTS}",
-        "- AUPRC denominator: gold intersect candidates only; gold outside the "
-        "candidate list is not retrievable by offline re-ranking.",
-        "",
-        "## Ranking vs genetic gold",
-        "",
-        "| ranking | P@10 | P@20 | nDCG@20 | AUPRC |",
-        "|---------|------|------|---------|-------|",
     ]
-    for name in RANKING_ORDER:
+    if not spec_only:
+        lines.append(f"- CDRS PLACEHOLDER_WEIGHTS={PLACEHOLDER_WEIGHTS}")
+    lines.extend(
+        [
+            "- AUPRC denominator: gold intersect candidates only; gold outside the "
+            "candidate list is not retrievable by offline re-ranking.",
+            "",
+            "## Ranking vs genetic gold",
+            "",
+            "| ranking | P@10 | P@20 | nDCG@20 | AUPRC |",
+            "|---------|------|------|---------|-------|",
+        ]
+    )
+    for name in ranking_order:
         label = name
         if name == "spec_adj":
             label += " (current)"
@@ -362,17 +393,18 @@ def render_report(disease, rows, rankings, scores, gt, disease_total, warnings=N
             f"{metric['nDCG@20']:.3f} | {metric['AUPRC']:.3f} |"
         )
 
-    lines.extend(
-        [
-            "",
-            "## Diagnostics (CDRS ranking)",
-            "",
-            f"- artifact leakage in top-20: {artifact_leakage or 'none'}",
-            f"- related_pleiotropic track: {related_hubs or 'none'}",
-            f"- IL4/IL13 rank position: {il_positions}",
-            f"- gold intersect candidates: {gold_in_candidates or 'none'}",
-        ]
-    )
+    if not spec_only:
+        lines.extend(
+            [
+                "",
+                "## Diagnostics (CDRS ranking)",
+                "",
+                f"- artifact leakage in top-20: {artifact_leakage or 'none'}",
+                f"- related_pleiotropic track: {related_hubs or 'none'}",
+                f"- IL4/IL13 rank position: {il_positions}",
+                f"- gold intersect candidates: {gold_in_candidates or 'none'}",
+            ]
+        )
     if warnings:
         lines.extend(["", "## Load warnings", ""])
         lines.extend(f"- {warning}" for warning in warnings)
@@ -381,18 +413,27 @@ def render_report(disease, rows, rankings, scores, gt, disease_total, warnings=N
     return "\n".join(lines)
 
 
-def evaluate(disease, refresh_gt=False):
-    scored_path = ensure_scored(disease)
-    rows, warnings = load_scored(scored_path)
+def evaluate(disease, refresh_gt=False, spec_only=False):
+    scored_path = ensure_scored(disease, spec_only=spec_only)
+    rows, warnings = load_scored(scored_path, spec_only=spec_only)
     disease_total = disease_total_from_pubtator(disease)
     gt = load_ground_truth(
         disease["mondo_id"],
         disease["genetic_threshold"],
         refresh=refresh_gt,
     )
-    rankings = compute_rankings(rows, disease_total)
+    rankings = compute_rankings(rows, disease_total, spec_only=spec_only)
     scores = score_rankings(rankings, gt["gold"])
-    report = render_report(disease, rows, rankings, scores, gt, disease_total, warnings)
+    report = render_report(
+        disease,
+        rows,
+        rankings,
+        scores,
+        gt,
+        disease_total,
+        warnings,
+        spec_only=spec_only,
+    )
     candidates = {row["symbol"] for row in rows}
     gold_in_candidates = gt["gold"] & candidates
     return {
@@ -407,7 +448,8 @@ def evaluate(disease, refresh_gt=False):
     }
 
 
-def aggregate_scores(evaluations):
+def aggregate_scores(evaluations, spec_only=False):
+    ranking_order = ranking_order_for_mode(spec_only)
     eligible = [
         result for result in evaluations
         if result["meta"]["n_gold_in_candidates"] > 0
@@ -417,7 +459,7 @@ def aggregate_scores(evaluations):
         if result["meta"]["n_gold_in_candidates"] <= 0
     ]
     means = {}
-    for ranking in RANKING_ORDER:
+    for ranking in ranking_order:
         means[ranking] = {}
         for metric in METRIC_ORDER:
             values = [
@@ -436,9 +478,10 @@ def _fmt_metric(value):
     return "NA" if value is None else f"{value:.3f}"
 
 
-def render_summary(evaluations, errors=None):
+def render_summary(evaluations, errors=None, spec_only=False):
     errors = errors or []
-    aggregate = aggregate_scores(evaluations)
+    ranking_order = ranking_order_for_mode(spec_only)
+    aggregate = aggregate_scores(evaluations, spec_only=spec_only)
     lines = [
         "# CDRS bench - cross-disease summary",
         "",
@@ -449,7 +492,7 @@ def render_summary(evaluations, errors=None):
         "| ranking | mean P@10 | mean P@20 | mean nDCG@20 | mean AUPRC |",
         "|---------|-----------|-----------|--------------|------------|",
     ]
-    for ranking in RANKING_ORDER:
+    for ranking in ranking_order:
         metric = aggregate["means"][ranking]
         label = ranking
         if ranking == "spec_adj":
@@ -481,7 +524,7 @@ def render_summary(evaluations, errors=None):
     )
     for result in evaluations:
         meta = result["meta"]
-        for ranking in RANKING_ORDER:
+        for ranking in ranking_order:
             metric = result["scores"][ranking]
             lines.append(
                 f"| {meta['keyword']} | {meta['n_gold']} | "
@@ -493,11 +536,11 @@ def render_summary(evaluations, errors=None):
     eligible = aggregate["eligible"]
     if eligible:
         best_ndcg = max(
-            RANKING_ORDER,
+            ranking_order,
             key=lambda ranking: aggregate["means"][ranking]["nDCG@20"],
         )
         best_auprc = max(
-            RANKING_ORDER,
+            ranking_order,
             key=lambda ranking: aggregate["means"][ranking]["AUPRC"],
         )
         lines.append(
@@ -543,6 +586,7 @@ def _selftest():
     assert _percentiles([10]) == [1.0]
     assert _percentiles([10, 20, 30]) == [0.0, 0.5, 1.0]
     assert compute_rankings([], 100)["cdrs_rank_score"] == []
+    assert set(compute_rankings([], 100, spec_only=True)) == set(SPEC_ONLY_RANKING_ORDER)
 
     rows = [
         {
@@ -581,6 +625,30 @@ def _selftest():
     assert "spec_adj_artifact" in rankings
     assert rankings["spec_adj"].index("IGHE") < rankings["spec_adj"].index("A")
     assert rankings["spec_adj_artifact"].index("IGHE") > rankings["spec_adj_artifact"].index("A")
+
+    spec_only_rows = [
+        {
+            "symbol": "A",
+            "co_papers": 20,
+            "gene_papers": 100,
+            "specificity": 0.2,
+            "spec_adj": 0.12,
+        },
+        {
+            "symbol": "IGHE",
+            "co_papers": 30,
+            "gene_papers": 200,
+            "specificity": 0.15,
+            "spec_adj": 0.13,
+        },
+    ]
+    spec_only_rankings = compute_rankings(spec_only_rows, 1000, spec_only=True)
+    assert set(spec_only_rankings) == set(SPEC_ONLY_RANKING_ORDER)
+    assert spec_only_rankings["spec_adj"].index("IGHE") < spec_only_rankings["spec_adj"].index("A")
+    assert (
+        spec_only_rankings["spec_adj_artifact"].index("IGHE")
+        > spec_only_rankings["spec_adj_artifact"].index("A")
+    )
 
     def fake_scores(base):
         return {
@@ -632,6 +700,10 @@ def _selftest():
     summary = render_summary(fake_evaluations)
     assert "Best mean nDCG@20" in summary
     assert "degenerate: no gold-in-candidates" in summary
+    spec_only_summary = render_summary(fake_evaluations, spec_only=True)
+    assert "| z_rel |" not in spec_only_summary
+    assert "| cdrs_rank_score" not in spec_only_summary
+    assert "| enrichment_z |" in spec_only_summary
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_path = os.path.join(temp_dir, "cdrs_bench_SUMMARY.md")
         with open(temp_path, "w", encoding="utf-8", newline="\n") as handle:
@@ -647,13 +719,26 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--refresh-gt", action="store_true", help="re-fetch OpenTargets gold")
     parser.add_argument("--selftest", action="store_true", help="run metric self-checks and exit")
+    parser.add_argument(
+        "--config",
+        default=os.path.join(HERE, "bench_diseases.json"),
+        help="disease config JSON (default: evals/bench_diseases.json)",
+    )
+    parser.add_argument(
+        "--spec-only",
+        action="store_true",
+        help=(
+            "fetch missing dumps with --rank spec and report only panel-free "
+            "rankings; existing genes_all_scored.tsv dumps are reused as-is"
+        ),
+    )
     args = parser.parse_args()
 
     if args.selftest:
         _selftest()
         return
 
-    with open(os.path.join(HERE, "bench_diseases.json"), encoding="utf-8") as handle:
+    with open(args.config, encoding="utf-8") as handle:
         config = json.load(handle)
 
     out_dir = os.path.join(HERE, "output")
@@ -662,7 +747,11 @@ def main():
     errors = []
     for disease in config["diseases"]:
         try:
-            result = evaluate(disease, refresh_gt=args.refresh_gt)
+            result = evaluate(
+                disease,
+                refresh_gt=args.refresh_gt,
+                spec_only=args.spec_only,
+            )
         except Exception as exc:
             print(
                 f"ERROR: failed to evaluate '{disease['keyword']}': {exc}",
@@ -679,7 +768,7 @@ def main():
         print(f"\n{report}\n\n-> {out_path}")
         evaluations.append(result)
 
-    summary = render_summary(evaluations, errors)
+    summary = render_summary(evaluations, errors, spec_only=args.spec_only)
     summary_path = os.path.join(out_dir, "cdrs_bench_SUMMARY.md")
     with open(summary_path, "w", encoding="utf-8", newline="\n") as handle:
         handle.write(summary + "\n")

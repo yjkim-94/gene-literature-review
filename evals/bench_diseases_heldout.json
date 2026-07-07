@@ -1,0 +1,13 @@
+{
+  "note": "Held-out 8 diseases (method_dev 12-set minus the tuning-4). Used with --spec-only to reconfirm spec_adj_artifact vs spec_adj WITHOUT the CDRS panel (artifact demotion needs no panel). None is in scripts/data/panel_random.tsv.",
+  "diseases": [
+    {"keyword": "inflammatory bowel disease", "entity": "@DISEASE_Inflammatory_Bowel_Diseases", "mondo_id": "MONDO_0005265", "genetic_threshold": 0.5, "scan": 200, "max": 30, "split": "held-out"},
+    {"keyword": "type 2 diabetes", "entity": "@DISEASE_Diabetes_Mellitus_Type_2", "mondo_id": "MONDO_0005148", "genetic_threshold": 0.5, "scan": 200, "max": 30, "split": "held-out"},
+    {"keyword": "Alzheimer disease", "entity": "@DISEASE_Alzheimer_Disease", "mondo_id": "MONDO_0004975", "genetic_threshold": 0.5, "scan": 200, "max": 30, "split": "held-out"},
+    {"keyword": "breast cancer", "entity": "@DISEASE_Breast_Neoplasms", "mondo_id": "MONDO_0007254", "genetic_threshold": 0.5, "scan": 200, "max": 30, "split": "held-out"},
+    {"keyword": "melanoma", "entity": "@DISEASE_Melanoma", "mondo_id": "MONDO_0005105", "genetic_threshold": 0.5, "scan": 200, "max": 30, "split": "held-out"},
+    {"keyword": "systemic lupus erythematosus", "entity": "@DISEASE_Lupus_Erythematosus_Systemic", "mondo_id": "MONDO_0007915", "genetic_threshold": 0.5, "scan": 200, "max": 30, "split": "held-out"},
+    {"keyword": "chronic obstructive pulmonary disease", "entity": "@DISEASE_Pulmonary_Disease_Chronic_Obstructive", "mondo_id": "MONDO_0005002", "genetic_threshold": 0.5, "scan": 200, "max": 30, "split": "held-out"},
+    {"keyword": "non-alcoholic fatty liver disease", "entity": "@DISEASE_Non_alcoholic_Fatty_Liver_Disease", "mondo_id": "MONDO_0013209", "genetic_threshold": 0.5, "scan": 200, "max": 30, "split": "held-out"}
+  ]
+}
