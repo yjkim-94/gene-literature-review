@@ -6,8 +6,8 @@
       "entity": "@DISEASE_Dermatitis_Atopic",
       "mondo_id": "MONDO_0004980",
       "genetic_threshold": 0.5,
-      "scan": 80,
-      "max": 20,
+      "scan": 200,
+      "max": 30,
       "split": "tuning"
     },
     {
@@ -15,8 +15,8 @@
       "entity": "@DISEASE_Asthma",
       "mondo_id": "MONDO_0004979",
       "genetic_threshold": 0.5,
-      "scan": 80,
-      "max": 20,
+      "scan": 200,
+      "max": 30,
       "split": "tuning"
     },
     {
@@ -24,8 +24,8 @@
       "entity": "@DISEASE_Arthritis_Rheumatoid",
       "mondo_id": "MONDO_0008383",
       "genetic_threshold": 0.5,
-      "scan": 80,
-      "max": 20,
+      "scan": 200,
+      "max": 30,
       "split": "tuning"
     },
     {
@@ -33,8 +33,8 @@
       "entity": "@DISEASE_Psoriasis",
       "mondo_id": "MONDO_0005083",
       "genetic_threshold": 0.5,
-      "scan": 80,
-      "max": 20,
+      "scan": 200,
+      "max": 30,
       "split": "tuning"
     }
   ]

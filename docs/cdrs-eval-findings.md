@@ -1,6 +1,7 @@
 # CDRS evaluation — findings & recommendation (2026-07-06)
 
-Status: **evaluation complete on the tuning-4 set. Decision pending (user).**
+Status: **evaluation complete on the tuning-4 set (two pool sizes). Verdict:
+drop CDRS, ship `spec_adj_artifact`. Sign-off pending (user).**
 
 ## Question
 
@@ -54,20 +55,45 @@ Holding weights at the best combo, toggling the two multipliers:
 - `artifact_weight` (Ig/TCR/HLA symbol demotion) is the **only** net-positive
   piece: ~+0.007 AUPRC, and it is cheap and independent of the whole panel.
 
+## Confirmation on a larger candidate pool (scan 200 / max 30)
+
+Re-run with a bigger pool (gold-in-candidates 7–11 per disease, up from 4–8) to
+cut noise, and with `spec_adj_artifact` (= `artifact_weight × spec_adj`) as an
+explicit ranking:
+
+| ranking | mean nDCG@20 | mean AUPRC |
+|---------|--------------|------------|
+| **spec_adj_artifact** | **0.288** | **0.383** |
+| spec_adj (current) | 0.282 | 0.364 |
+| specificity | 0.280 | 0.359 |
+| enrichment_z | 0.247 | 0.300 |
+| z_rel | 0.222 | 0.274 |
+| cdrs_rank_score (placeholder) | 0.217 | 0.259 |
+
+- The bigger pool **strengthens** the conclusion: full `cdrs_rank_score` drops to
+  the bottom tier; spec_adj's lead over the CDRS machinery is robust, not noise.
+- `spec_adj_artifact` is **≥ spec_adj on every disease and strictly better where
+  Ig/TCR/HLA genes appear** (asthma AUPRC 0.539 → 0.610, AD slightly up; RA and
+  psoriasis tie because their candidate pools contain no artifact genes). It is
+  a strict, no-downside win.
+
 ## Recommendation
 
 1. **Do not adopt CDRS as the default ranking.** Its two signature mechanisms
    (z_rel as main signal, cross-disease `hub_penalty`) do not help — hub_penalty
    is actively harmful — and the ~1,100 extra PubTator calls per keyword buy a
-   net-neutral-to-worse result. Keep `--rank spec` (current) as default; the
-   `--rank cdrs` columns stay as an experimental/observe artifact.
-2. **Consider adopting only `artifact_weight`** — a symbol-regex demotion of
-   Ig/TCR/HLA (e.g. IGHE) applied on top of `spec_adj`. It is the one separable
-   improvement, near-zero cost, and needs none of the panel machinery.
-3. **Held-out 8 diseases: likely not worth the spend.** The tuning-set ceiling
-   is a noise-level tie reached only by disabling CDRS's core idea, so held-out
-   validation would almost certainly confirm "no real improvement." Run it only
-   if a formal negative result is wanted for the record.
+   worse result. Keep the `--rank cdrs` columns as an experimental/observe
+   artifact only.
+2. **Adopt `artifact_weight` into the default ranking** — a symbol-regex demotion
+   of Ig/TCR/HLA (IGHE etc.) applied on top of `spec_adj`. It is the best ranking
+   measured, a strict no-downside improvement over the current one, and needs
+   none of the panel machinery (near-zero cost: a regex on the symbol). This is
+   the one piece of the CDRS work worth shipping.
+3. **Held-out 8 diseases: not worth the spend for CDRS.** The bigger-pool result
+   confirms CDRS loses; held-out would only reconfirm it. (A held-out check of
+   `spec_adj_artifact` alone is cheap-ish if a formal sign-off is wanted before
+   shipping it, since artifact demotion needs no panel — but the tuning-4 signal
+   is already consistent and mechanism-clear.)
 
 ## Caveats
 
