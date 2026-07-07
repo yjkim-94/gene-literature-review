@@ -156,11 +156,18 @@ CDRS를 프로덕션에 넣기 전에 **외부·문헌 독립 정답셋**으로 
       `./PubmedData/ArticleIdList/ArticleId` 직속 경로로 제한. 둘 다 `test_fetch_pubmed.py`가 가드.
 - 교훈: 두 버그 다 **unit test로는 못 잡고 실제 end-to-end run으로만** 드러남(실 PubMed XML 필요).
 
+**템플릿 견고성 재검증(2026-07-07, 비면역 질환 — Parkinson disease)**:
+- [x] AD(면역)와 gene biology가 완전히 다른 신경퇴행성 질환으로 전체 파이프라인 재실행. Phase 1이
+      교과서적 PD gene(LRRK2·ATP13A2·SNCA·PARK7·TMEM230·VPS35·FBXO7·VPS13C)을 immune 오염 없이
+      정확히 랭킹 → 랭킹의 도메인 일반성 확인.
+- [x] Phase 3~4를 **Codex(독립 fresh 에이전트)**가 SKILL.md 템플릿만 보고 실행 → Claude가 무결성 검증:
+      인용 PMID 전부 실존·per-gene 교차오염 0·access 라벨 verbatim·전 섹션 구비·prose 품질 일관.
+      → 템플릿이 특정 도메인/작성자에 의존하지 않고 견고함을 입증([[delegate-simple-coding-to-codex]] 방식).
+
 **남은 작업**:
-- [ ] Phase 3~4는 스크립트가 아니라 SKILL.md의 프롬프트/템플릿 지침 — 로직 자체엔 회귀 가드가 없음
-      (LLM 실행). 다른 키워드(비면역질환 등)로 추가 실행하면 템플릿 견고성 더 확인 가능.
 - [ ] access 라벨은 이제 정확하나 "full-text"가 곧 전문 읽음을 뜻하진 않음 — Phase 3는 여전히 abstract만
       읽음. PMC 전문까지 실제로 당겨 읽는 경로는 미구현(SKILL은 abstract 기반 요약을 기본으로 명시).
+- [ ] Phase 3~4 로직 자체엔 회귀 가드 없음(LLM 실행) — 대규모 gene(10+) subagent fan-out 경로는 미검증.
 
 **다음 에이전트가 먼저 읽을 것**: `docs/cdrs-eval-findings.md`(왜 CDRS를 접었는가), 이 파일, 그리고
 Phase 1 랭킹을 건드린다면 `scripts/test_fetch_genes.py`(회귀 가드).
