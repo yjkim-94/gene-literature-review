@@ -127,6 +127,13 @@ fetch 계층 대체는 전부 부적격, 현 스크립트 유지가 정답.**
 - **framing**(SKILL.md 명시): "OT DB 근거지 문헌 아님" — `verify_citations`에 안 넣고, 논문으로 인용 안 하고,
   abstract 요약과 혼동 금지. 순수 참고 오버레이.
 
+### (F) Recall eval 보강과 OT stress test — 2026-07-07 (`evals/run_eval.py`)
+`run_eval.py`를 `recall@10/@30`, gold rank summary, miss 원인(`pool-miss`/`rank-cut`)까지 출력하도록 보강하고
+결과를 `evals/output/recall_eval.md`에 저장하게 했다. `evals.json`은 `.gt_cache`의 OpenTargets
+`genetic_association >= 0.5`가 30개 이상인 12 disease keyword만 남기고, 각 keyword 상위 30 genes로 고정했다.
+실행 결과 mean `recall@30 = 0.13`으로 낮았고, miss는 대부분 `pool-miss`였다. 단, OT genetic gold는
+문헌 co-occurrence specificity와 목표 함수가 달라 **main 성능 eval이 아니라 stress test/보완축 검증**으로만 해석한다.
+
 ## 4. 시행착오 & 교훈 (핵심 — 다음 에이전트가 반복하지 말 것)
 
 1. **"정교한 방법 > 단순 baseline"은 착각이었다.** CDRS는 panel·z_rel·permutation-null·4-track까지
@@ -160,14 +167,18 @@ fetch 계층 대체는 전부 부적격, 현 스크립트 유지가 정답.**
     문장뿐이었고 사후 검증이 없었다. 검증을 **코드로**(문자 대조, 모델 없음) 내리자 "검산이 또 hallucinate
     하면?"이라는 사슬도 끊김 — 문자 비교엔 지어낼 여지가 없음(`verify_citations.py`). 마찬가지로 사람 검토
     gate도 지시가 아니라 fail-closed 코드로 강제. → **신뢰의 근거는 지시가 아니라 기계적 확인.**
+11. **OT genetic은 단독 main eval gold로 부적격하다.** 이 스킬의 Phase 1은 "문헌에서 keyword 맥락으로
+    특이적으로 연구된 gene"을 찾고, OT genetic은 "variant/GWAS 기반 disease association"을 본다. 둘은
+    독립 축이라 낮은 recall은 의미 있지만, "스킬 성능이 낮다"의 직접 증거는 아니다. → OT는 stress test,
+    main eval은 GO/Reactome/MSigDB/curated review 같은 task-aligned gold가 필요.
 
 ---
 
 ## 5. 현재 상태 & 남은 것
 
 **동작 상태**: Phase 1 랭킹 = `spec_adj` + artifact 감점(default). 옵션 `--ot-overlay`로 OT 표시 컬럼
-(랭킹 불변). CDRS 코드는 전부 제거됨. 평가 하니스 = `run_eval.py`(recall 스모크·baseline recall@20 0.92)
-+ `cdrs_bench.py`(spec 랭킹 회귀) + `candidate_c_bench.py`(OT vs 문헌).
+(랭킹 불변). CDRS 코드는 전부 제거됨. 평가 하니스 = `run_eval.py`(recall@10/@30 + miss 원인 출력;
+현재 OT stress test mean recall@30 0.13) + `cdrs_bench.py`(spec 랭킹 회귀) + `candidate_c_bench.py`(OT vs 문헌).
 
 **검증 이력(2026-07-07, 요약 — 상세는 git log·테스트 가드)**:
 - Phase 2~4 end-to-end 최초 관통(atopic dermatitis): 인용 무결성·교차오염 0 확인. 이 과정에서 실 PubMed
@@ -176,6 +187,10 @@ fetch 계층 대체는 전부 부적격, 현 스크립트 유지가 정답.**
 - 도메인 일반성: 비면역(Parkinson) 재실행에서 교과서적 PD gene을 immune 오염 없이 랭킹. Phase 3~4를 Codex
   독립 실행 → Claude 무결성 검증 통과 → 템플릿이 도메인/작성자 비의존임을 입증.
 - held-out `breast cancer`: `spec_adj_artifact` == `spec_adj`(Ig 오염 없어 감점 미발동) → 무손실 재확인.
+- OT genetic stress test: `.gt_cache` 기반 12 disease × 30 gold genes로 `run_eval.py` 실행. 낮은 recall의 주원인은
+  `pool-miss`였고, 이는 문헌 co-occurrence discovery와 genetic gold의 축 차이를 드러내는 보조 지표로 기록.
+- Task-aligned GO-BP eval 초안: QuickGO 기반 5 keyword × 30 gold genes, scan 500. mean recall@30 0.14,
+  miss 대부분은 여전히 `pool-miss` → ranking보다 candidate discovery/scan 단계가 병목.
 
 **남은 작업**:
 - [ ] `full-text` 라벨은 정직화됨(§3C③)이나 PMC 전문을 실제로 당겨 읽는 경로는 미구현 — Phase 3는 abstract
@@ -184,6 +199,8 @@ fetch 계층 대체는 전부 부적격, 현 스크립트 유지가 정답.**
       fan-out 경로는 여전히 LLM 실행 의존 + 실검증 미완.
 - [ ] ⚠철회 경로는 unit test(D016441)로만 커버 — 철회 논문이 실제 포함되는 키워드로 end-to-end 실검증 미완.
 - [ ] OT overlay는 tuning 4질병 기준 보완가치 확인 — held-out 다질병 실검증 및 실제 표시/활용 UX는 미완.
+- [ ] task-aligned main recall eval은 아직 부족 — `docs/task-aligned-gold-design.md` 기준으로 GO/Reactome/MSigDB/
+      curated review gold를 구성해야 함. OT genetic은 stress test로만 유지.
 - [x] fetch 계층 MCP 대체 검토 → **전부 부적격**(§3D). OT는 참고 오버레이로만 채택(§3E).
 
 **다음 에이전트가 먼저 읽을 것**: `docs/cdrs-eval-findings.md`(왜 CDRS를 접었는가), 이 파일, 그리고
