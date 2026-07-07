@@ -42,13 +42,9 @@ import concurrent.futures
 import csv
 import hashlib
 import json
-import math
 import os
-import random
 import re
-import statistics
 import sys
-import threading
 import time
 import urllib.parse
 import urllib.request
@@ -231,209 +227,16 @@ def wilson_lower(k, n, z=1.96):
     return (center - margin) / (1 + z2 / n)
 
 
-# ---- CDRS: cross-disease relative specificity (method_dev.md §6) ------------
-# OBSERVE ONLY (§6.7 step 2): computes z_rel / breadth_random / hub_penalty and
-# adds them as columns, but ranking stays on spec_adj. Enabled by --rank cdrs.
-# These columns exist to be eyeballed on real runs before they drive rank_score.
-CDRS_ALPHA = 0.5
-CDRS_EPS = 1e-9
-# ponytail: PLACEHOLDER floor (method_dev §7-①) -- same "arbitrary constant"
-# critique as the old 0.05; breadth's specificity bar, to be derived/tuned later.
-CDRS_BAR_B = 0.02
-CDRS_COLS = ["z_rel", "breadth_random", "hub_penalty"]
 
-
-def load_panel(path):
-    """panel_random.tsv -> list of (token, disease_total). Skips # comments and
-    the header. disease_total is needed to pick volume-matched pseudo-diseases
-    (§6.2); tokens alone drive the z_rel/breadth panel."""
-    panel = []
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            if line.startswith("#") or line.startswith("token\t"):
-                continue
-            p = line.rstrip("\n").split("\t")
-            if len(p) >= 2 and p[0].strip() and p[1].strip().isdigit():
-                panel.append((p[0].strip(), int(p[1].strip())))
-    return panel
-
-
-def load_cache(cache_dir):
-    """(gene_id, token) -> count, persisted across runs. Panel co-counts are
-    keyword-INDEPENDENT, so reusing them across keywords is the whole point of
-    the cache (method_dev §6.4) -- without it every run re-issues thousands of
-    identical PubTator calls. Returns (dict, path)."""
-    path = os.path.join(cache_dir, "pubtator_counts.tsv")
-    cache = {}
-    if os.path.exists(path):
-        with open(path, encoding="utf-8") as f:
-            for line in f:
-                p = line.rstrip("\n").split("\t")
-                if len(p) == 3 and p[2].lstrip("-").isdigit():  # tolerate stray/header lines
-                    cache[(p[0], p[1])] = int(p[2])
-    return cache, path
-
-
-def save_cache(cache, path):
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    with open(path, "w", encoding="utf-8", newline="") as f:
-        for (gid, tok), n in sorted(cache.items()):
-            f.write(f"{gid}\t{tok}\t{n}\n")
-
-
-def panel_count(gid, token, cache, cache_lock=None):
-    """Cache-backed co-occurrence count of gene gid with a panel disease token.
-
-    ponytail: only these panel co-counts are cached -- they are the O(genes x
-    panel) cost that reruns must not repay. The gene total / query co-count are
-    fetched once each in the spec scoring path (and query-co carries evidence
-    PMIDs that don't belong in a count cache), so they are not routed here yet;
-    complete the §6.4 full wrapper when rank_score wiring lands.
-    """
-    key = (gid, token)
-    if key not in cache:
-        n, _ = _pubtator_count(co_query(gid, "", token))
-        if cache_lock:
-            with cache_lock:
-                cache[key] = n
-        else:
-            cache[key] = n
-    return cache[key]
-
-
-def _logit(s):
-    return math.log(s / (1 - s))
-
-
-def cdrs_enrich(rows, panel_tokens, cache, cache_path=None):
-    """Add z_rel / breadth_random / hub_penalty to each scored row (OBSERVE only).
-
-    For each gene, compare its query-disease specificity to its specificity
-    across the random disease panel:
-      s(g,d)  = (co + a) / (gene_papers + 2a)    ; x = logit(s)
-      z_rel   = (x_query - median_panel x) / (1.4826*MAD + eps)   -- robust z
-      breadth = fraction of panel where Wilson-lower(co_panel) >= BAR_B
-    A gene no more specific to the query than to random diseases scores z_rel~0;
-    a pleiotropic hub is broad (high breadth -> hub_penalty demotes it). Ranking
-    is NOT touched here. Mutates the row dicts in place.
-    """
-    a, eps = CDRS_ALPHA, CDRS_EPS
-    n_done = [0]
-    cache_lock = threading.Lock()
-
-    def flush_cache():
-        if cache_path:
-            with cache_lock:
-                save_cache(cache, cache_path)
-
-    def enrich(row):
-        gid, co, total = row["gene_id"], row["co_papers"], row["gene_papers"]
-        # panel counts are sequential inside one gene so we don't exceed the
-        # ~3-worker PubTator ceiling (genes run in parallel, see below). Cache
-        # writes are locked so incremental flushes never iterate a mutating dict.
-        cs = [panel_count(gid, tok, cache, cache_lock) for tok in panel_tokens]
-        # clamp co/c to total before logit: two independent PubTator count calls
-        # can transiently disagree (co > total), which would push s>1 and crash
-        # math.log -- same guard wilson_lower already applies.
-        x_d = _logit((min(co, total) + a) / (total + 2 * a))
-        xs = [_logit((min(c, total) + a) / (total + 2 * a)) for c in cs]
-        med = statistics.median(xs)
-        mad = statistics.median([abs(x - med) for x in xs])  # 0 if panel uniform -> eps guards
-        breadth = sum(wilson_lower(c, total) >= CDRS_BAR_B for c in cs) / len(cs)
-        row["z_rel"] = round((x_d - med) / (1.4826 * mad + eps), 4)
-        row["breadth_random"] = round(breadth, 4)
-        row["hub_penalty"] = round(1 - min(breadth, 0.8), 4)
-        n_done[0] += 1
-        log(f"cdrs [{n_done[0]}/{len(rows)}]: {row['symbol']} "
-            f"z_rel={row['z_rel']} breadth={row['breadth_random']}")
-        flush_cache()
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
-        list(ex.map(enrich, rows))
-
-
-# ---- Stage 3: permutation-null threshold + track assignment (§6.7 step 3) ----
-# Still OBSERVE: T_emp/pass_stage1 populate the `track` column but do NOT reorder
-# the list. T_emp's exact null is a KNOWN open question (method_dev §7-③); this
-# is the doc's provisional pooled-Q0.95 definition, safe to eyeball because it
-# only labels tracks here.
-STAGE3_COLS = ["pass_stage1", "track"]
-# ARTIFACT_CLASSES as a symbol-regex class test, NOT a hardcoded gene blocklist
-# (§6.3). esummary gene-type == pseudo is deferred to step 4 (needs the record
-# carried into rows); the immunoglobulin/TCR/HLA symbols cover the AD case (IGHE).
-# The Ig arms require an isotype/segment letter followed only by digits/hyphens
-# (or end) so real coding genes that merely start with IGH -- IGHMBP2, IGHMBP-
-# like helicases -- are NOT swept in. TR[ABGD][VJDC] and HLA- are already tight.
+# These immunoglobulin/TCR/HLA structural symbols are recurrent literature
+# artifacts (e.g. IGHE for atopic dermatitis) demoted 0.5x by the default sort.
+# The regex is tight so real coding genes (IGHMBP2) are not swept in. Validated
+# no-downside in docs/cdrs-eval-findings.md.
 ARTIFACT_RE = re.compile(r"^(IG[HKL][ACDEGJMV][\d-]*$|IG[HKL]$|TR[ABGD][VJDC]|HLA-)")
-T_EMP_FALLBACK = 0.05  # §6.8: too few volume-matched pseudo-diseases -> old cut
 
 
 def is_artifact(symbol):
     return bool(ARTIFACT_RE.match(symbol or ""))
-
-
-def _percentile(sorted_vals, q):
-    """Nearest-rank q-quantile of an already-sorted list (no numpy dep).
-
-    index = ceil(q*n)-1, the standard nearest-rank rule -- round(q*(n-1)) drifts
-    by one for some n via banker's rounding (n=31, q=.95 -> 28 not 29)."""
-    if not sorted_vals:
-        return 0.0
-    i = min(max(math.ceil(q * len(sorted_vals)) - 1, 0), len(sorted_vals) - 1)
-    return sorted_vals[i]
-
-
-def select_pseudo(panel, m_d, n_p, seed):
-    """Pick up to n_p volume-matched pseudo-disease tokens (seed-fixed).
-
-    Volume matching is the point (§6.2): a chance-level threshold is only fair
-    against diseases of similar paper volume. Start at [0.5*M_D, 2*M_D] and
-    widen x2, x3 only if the window holds fewer than n_p. Returns (tokens,
-    too_few) -- too_few triggers the T_emp fallback (§6.8)."""
-    window = []
-    for k in (1, 2, 3):
-        lo, hi = m_d / (2 * k), 2 * k * m_d
-        window = [t for t, d in panel if lo <= d <= hi]
-        if len(window) >= n_p:
-            break
-    rng = random.Random(seed)
-    rng.shuffle(window)
-    pseudo = window[:n_p]
-    # fallback keys off the actually-sampled count: --pseudo-n 5 is too small for
-    # a stable null even if the window held more (§6.8 "<10 -> fallback").
-    return pseudo, len(pseudo) < 10
-
-
-def compute_t_emp(rows, pseudo_tokens, cache):
-    """T_emp = Q0.95 of Wilson-lower(co, G_g) pooled over every candidate gene x
-    pseudo-disease (§6.3). All counts are cache hits (pseudo-diseases are a subset
-    of the already-enriched panel), so this adds ~no network cost."""
-    pool = []
-    for r in rows:
-        gid, total = r["gene_id"], r["gene_papers"]
-        for tok in pseudo_tokens:
-            pool.append(wilson_lower(panel_count(gid, tok, cache), total))
-    pool.sort()
-    return _percentile(pool, 0.95)
-
-
-def assign_tracks(rows, t_emp, min_co, min_gene_papers):
-    """pass_stage1 + 4-track label per gene (§6.5 priority order). OBSERVE only."""
-    med_g = statistics.median([r["gene_papers"] for r in rows]) if rows else 0
-    for r in rows:
-        r["pass_stage1"] = (r["co_papers"] >= min_co and r["gene_papers"] >= min_gene_papers
-                            and wilson_lower(r["co_papers"], r["gene_papers"]) >= t_emp)
-        if is_artifact(r["symbol"]):
-            r["track"] = "artifact"
-        elif not r["pass_stage1"] and r["gene_papers"] < med_g:
-            r["track"] = "exploratory"
-        elif r["breadth_random"] >= 0.5:
-            r["track"] = "related_pleiotropic"
-        elif r["pass_stage1"]:
-            r["track"] = "established"
-        else:
-            r["track"] = "exploratory"
-
 
 def rank_and_floor(rows, min_gene_papers):
     """Order rows by specificity lower bound, demoting known artifact symbols.
@@ -550,19 +353,16 @@ TSV_COLS = ["symbol", "gene_id", "name", "co_papers", "gene_papers",
 
 
 def write_tsv(path, genes):
-    # CDRS columns appear only when --rank cdrs populated them (observe mode);
-    # the default spec path now adds only the explicit artifact marker.
-    extra = [c for c in CDRS_COLS + STAGE3_COLS if genes and c in genes[0]]
+    # Output schema is fixed so downstream steps can rely on TSV_COLS exactly.
     with open(path, "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f, delimiter="\t")
-        w.writerow(TSV_COLS + extra)
+        w.writerow(TSV_COLS)
         for g in genes:
             row = [g["symbol"], g["gene_id"], g["name"], g["co_papers"],
                    g["gene_papers"], g["specificity"], g["spec_adj"],
                    str(g["below_floor"]).lower(),
                    str(is_artifact(g["symbol"])).lower(),
                    ";".join(g["evidence_pmids"])]
-            row += [g[c] for c in extra]
             w.writerow(row)
 
 
@@ -586,19 +386,6 @@ def main():
                     help="require at least this many keyword+gene co-occurrence papers")
     ap.add_argument("--min-gene-papers", type=int, default=10,
                     help="demote genes with fewer than this many total papers (artifact floor)")
-    ap.add_argument("--rank", choices=["spec", "cdrs"], default="spec",
-                    help="spec (default, current behavior) or cdrs: also compute the "
-                         "cross-disease z_rel/breadth/hub_penalty columns (OBSERVE only -- "
-                         "ranking still on spec_adj). method_dev.md §6")
-    ap.add_argument("--panel-random", default=os.path.join("scripts", "data", "panel_random.tsv"),
-                    help="B_random disease panel for --rank cdrs")
-    ap.add_argument("--cache-dir", default=os.path.join("output", ".cache"),
-                    help="PubTator count cache dir (shared across keywords; panel counts "
-                         "are keyword-independent)")
-    ap.add_argument("--pseudo-n", type=int, default=30,
-                    help="number of volume-matched pseudo-diseases for the T_emp null (--rank cdrs)")
-    ap.add_argument("--seed", type=int, default=42,
-                    help="RNG seed for pseudo-disease sampling (reproducible T_emp)")
     ap.add_argument("--out", help="output TSV path; default output/<keyword-slug>/genes.tsv")
     ap.add_argument("--resolve", action="store_true",
                     help="resolve --keyword to PubTator concept-entity candidates "
@@ -638,44 +425,6 @@ def main():
     genes, all_scored = resolve_human(cnt, args.keyword, args.entity, args.organism, args.max,
                                       args.min_specificity, args.min_co,
                                       args.min_gene_papers)
-
-    # --rank cdrs: enrich every scored candidate with the cross-disease columns
-    # (all_scored dicts are shared with genes, so both outputs pick them up). This
-    # is observe-only -- rank_and_floor already ordered by spec_adj and we don't
-    # re-sort. §6.7 steps 1-2.
-    if args.rank == "cdrs":
-        if not os.path.exists(args.panel_random):
-            sys.exit(f"--rank cdrs needs a panel file but {args.panel_random} is missing "
-                     f"(build it: python scripts/data/build_panel_random.py)")
-        runlog.section("CDRS")
-        panel = load_panel(args.panel_random)
-        if not panel:
-            sys.exit(f"panel {args.panel_random} has no disease tokens (all comment/blank)")
-        tokens = [t for t, _ in panel]
-        cache, cache_path = load_cache(args.cache_dir)
-        log(f"cdrs: {len(all_scored)} genes x {len(panel)} panel diseases "
-            f"(cache: {len(cache)} entries loaded)")
-        try:
-            cdrs_enrich(all_scored, tokens, cache, cache_path)
-        finally:
-            save_cache(cache, cache_path)
-
-        # Stage 3: volume-matched pseudo-diseases -> T_emp -> pass_stage1 + track.
-        # pseudo counts are a subset of the panel just enriched, so this is ~free.
-        m_d = _pubtator_count(search_text(args.keyword, args.entity))[0]
-        pseudo, too_few = select_pseudo(panel, m_d, args.pseudo_n, args.seed)
-        if too_few:
-            t_emp = T_EMP_FALLBACK
-            log(f"cdrs: only {len(pseudo)} volume-matched pseudo-diseases (<10) -> "
-                f"T_emp fallback {t_emp} (method_dev §6.8)")
-        else:
-            t_emp = compute_t_emp(all_scored, pseudo, cache)
-            log(f"cdrs: M_D={m_d}, {len(pseudo)} pseudo-diseases -> T_emp={t_emp:.4f}")
-        assign_tracks(all_scored, t_emp, args.min_co, args.min_gene_papers)
-        save_cache(cache, cache_path)
-        log(f"cdrs: cache now {len(cache)} entries -> {cache_path}")
-        for tr, n in sorted(collections.Counter(g["track"] for g in all_scored).items()):
-            log(f"cdrs track: {tr} = {n}")
 
     write_tsv(out, genes)
     # sidecar dump of every scored candidate (pre-filter) so the spec_adj

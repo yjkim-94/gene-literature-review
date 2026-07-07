@@ -10,8 +10,6 @@ Run: python scripts/test_fetch_genes.py
 import json as _json
 import os
 import tempfile
-import threading
-import time
 import fetch_genes
 from fetch_genes import wilson_lower, rank_and_floor, search_text, co_query, gene_query, entity_candidates, slug
 
@@ -117,80 +115,6 @@ def test_wilson_lower_bounds_and_degenerate():
     assert isinstance(round(v, 4), float)
 
 
-def test_cdrs_cache_flushes_before_return_and_after_failure():
-    rows = [
-        {"symbol": "G1", "gene_id": "1", "co_papers": 5, "gene_papers": 20},
-        {"symbol": "G2", "gene_id": "2", "co_papers": 5, "gene_papers": 20},
-    ]
-    panel_tokens = ["@DISEASE_A", "@DISEASE_B"]
-    old_count = fetch_genes._pubtator_count
-    old_workers = fetch_genes.MAX_WORKERS
-    second_gene_started = threading.Event()
-    release_second_gene = threading.Event()
-
-    def fixed_count(query):
-        if "@GENE_2" in query:
-            second_gene_started.set()
-            release_second_gene.wait(timeout=5)
-        return 3, []
-
-    with tempfile.TemporaryDirectory() as td:
-        cache_path = os.path.join(td, "pubtator_counts.tsv")
-        try:
-            fetch_genes._pubtator_count = fixed_count
-            fetch_genes.MAX_WORKERS = 2
-            worker = threading.Thread(
-                target=fetch_genes.cdrs_enrich,
-                args=(rows, panel_tokens, {}),
-                kwargs={"cache_path": cache_path},
-            )
-            worker.start()
-            assert second_gene_started.wait(timeout=2)
-            for _ in range(40):
-                if os.path.exists(cache_path) and open(cache_path, encoding="utf-8").read():
-                    break
-                time.sleep(0.05)
-            assert worker.is_alive()
-            saved = open(cache_path, encoding="utf-8").read()
-            assert "1\t@DISEASE_A\t3\n" in saved
-            assert "1\t@DISEASE_B\t3\n" in saved
-            release_second_gene.set()
-            worker.join(timeout=2)
-            assert not worker.is_alive()
-        finally:
-            fetch_genes._pubtator_count = old_count
-            fetch_genes.MAX_WORKERS = old_workers
-
-    rows = [
-        {"symbol": "G1", "gene_id": "1", "co_papers": 5, "gene_papers": 20},
-        {"symbol": "G2", "gene_id": "2", "co_papers": 5, "gene_papers": 20},
-    ]
-
-    def fail_on_second_gene(query):
-        if "@GENE_2" in query:
-            raise RuntimeError("simulated PubTator failure")
-        return 4, []
-
-    with tempfile.TemporaryDirectory() as td:
-        cache_path = os.path.join(td, "pubtator_counts.tsv")
-        cache = {}
-        try:
-            fetch_genes._pubtator_count = fail_on_second_gene
-            fetch_genes.MAX_WORKERS = 2
-            try:
-                fetch_genes.cdrs_enrich(rows, panel_tokens, cache, cache_path)
-            finally:
-                fetch_genes.save_cache(cache, cache_path)
-        except RuntimeError:
-            pass
-        finally:
-            fetch_genes._pubtator_count = old_count
-            fetch_genes.MAX_WORKERS = old_workers
-        saved = open(cache_path, encoding="utf-8").read()
-        assert "1\t@DISEASE_A\t4\n" in saved
-        assert "1\t@DISEASE_B\t4\n" in saved
-
-
 def test_spec_tsv_columns_include_artifact_without_cdrs():
     rows = [_row("CORE", 140, 400)]
     rows[0].update({
@@ -221,6 +145,5 @@ if __name__ == "__main__":
     test_slug_never_empty_and_isolates_non_ascii()
     test_co_and_total_use_same_gene_form()
     test_wilson_lower_bounds_and_degenerate()
-    test_cdrs_cache_flushes_before_return_and_after_failure()
     test_spec_tsv_columns_include_artifact_without_cdrs()
     print("ok: floor + wilson_lower demote tiny-n artifacts, keep specific core genes on top")

@@ -24,11 +24,11 @@ Claude Code **skill**. 사용자가 생물학 keyword(질병·pathway·phenotype
 scripts/fetch_genes.py     Phase 1 — keyword → 특이도 순 ranked gene 목록 (이 repo의 핵심)
 scripts/fetch_pubmed.py    Phase 2 — gene별 PubMed abstract 수집 (lit/<SYMBOL>.json)
 scripts/runlog.py          공용 로깅 (per-phase A+B 로그, tail -f 가능)
-scripts/data/panel_random.tsv        CDRS용 B_random 질병 패널 (아래 참조)
-scripts/data/build_panel_random.py   위 파일 생성기 (PubTator에서 실측)
 scripts/test_fetch_genes.py          Phase 1 offline 회귀 테스트
 
-evals/                     정량 평가 하니스 (CDRS 실험 검증용, 아래 참조)
+evals/cdrs_bench.py        정량 평가 하니스 — spec 계열 랭킹 vs OpenTargets genetic gold
+                           (CDRS 제거 후 spec-only 전용으로 축소. 파일명은 git 연속성상 유지)
+evals/run_eval.py          curated gold(evals.json) recall 스모크 (네트워크 경량)
 docs/cdrs-eval-findings.md CDRS 평가 최종 결론 문서 ★ 먼저 읽을 것
 ```
 
@@ -48,6 +48,10 @@ PubTator3의 **entity 기반 co-occurrence**로 특이도를 잰다(문자열 ti
 - **2026-07-07 채택**: 정렬 키가 `spec_adj` → `artifact_weight × spec_adj`로 바뀜. Ig/TCR/HLA 같은
   **구조적 문헌 아티팩트 gene**(예: IGHE)을 0.5× 감점(제거 아님). `is_artifact()` 심볼 regex로 판정.
   → 아래 §4의 CDRS 평가에서 유일하게 살아남아 검증된 개선.
+- **2026-07-07 CDRS 전면 제거**: 모든 지표에서 baseline `spec_adj`를 못 이겨(§4), `--rank cdrs`
+  산출 코드(z_rel·breadth·hub_penalty·panel·T_emp·4-track)와 `panel_random`·`build_panel_random.py`·
+  `tune_weights.py`를 삭제. `fetch_genes.py`는 순수 spec_adj + artifact 감점만 남음(-1179 lines).
+  `evals/cdrs_bench.py`는 spec-only 랭킹 벤치로 축소해 회귀 가드로 유지. artifact regex만 생존.
 
 ---
 
@@ -127,16 +131,18 @@ CDRS를 프로덕션에 넣기 전에 **외부·문헌 독립 정답셋**으로 
 
 ## 5. 현재 상태 & 남은 것
 
-**동작 상태**: Phase 1 랭킹 = `spec_adj` + artifact 감점(default). CDRS 전체는 `--rank cdrs`
-관찰 모드로만 존재. 평가 하니스(`evals/`)는 tuning-4 / held-out-8 config로 재현 가능.
+**동작 상태**: Phase 1 랭킹 = `spec_adj` + artifact 감점(default, 유일 모드). CDRS 코드는 전부 제거됨.
+평가 하니스: `evals/cdrs_bench.py`(spec-only, held-out-8 config로 재현) + `evals/run_eval.py`(recall 스모크).
 
-**미결/후보 작업**:
-- [ ] held-out `breast cancer` 1건이 transient network로 실패해 기록 미완(결론엔 영향 없음 — cancer라
-      neutral 예상). 원하면 재실행으로 기록만 채우기.
-- [ ] CDRS 관측 인프라(`panel_random`, z_rel, T_emp, `--rank cdrs`) 처리 방침 결정: 실험 자산으로
-      유지 vs 제거. 현재는 유지(하위호환, default 불변).
-- [ ] Phase 2~4(문헌 수집·요약·통합 문서)는 초기 구현 상태 — 이번 작업 범위 밖이었음.
-- [ ] `evals/run_eval.py`(초기 recall 스모크)와 `evals/cdrs_bench.py`(정식 벤치)는 별개 — 필요시 통합.
+**정리 완료(2026-07-07)**:
+- [x] held-out `breast cancer` 재실행 완료 — `spec_adj_artifact` == `spec_adj`(cancer엔 Ig 오염 없어
+      감점 미발동) → 무손실 결론 재확인. 기록 채움.
+- [x] CDRS 제거 완료(위 §2 참조). z_rel·T_emp·panel·`--rank cdrs`·`tune_weights.py` 삭제.
+- [x] `run_eval.py` ↔ `cdrs_bench.py` 통합 판단: **통합 안 함**. gold source(curated vs OpenTargets
+      genetic)도 목적(recall 스모크 vs 랭킹 벤치)도 달라 통합 이득 없음. 둘 다 유지.
+
+**남은 작업**:
+- [ ] Phase 2~4(문헌 수집·요약·통합 문서)는 초기 구현 상태 — **다음 실질 작업**.
 
 **다음 에이전트가 먼저 읽을 것**: `docs/cdrs-eval-findings.md`(왜 CDRS를 접었는가), 이 파일, 그리고
 Phase 1 랭킹을 건드린다면 `scripts/test_fetch_genes.py`(회귀 가드).
