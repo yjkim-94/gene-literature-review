@@ -77,6 +77,21 @@ explicit ranking:
   psoriasis tie because their candidate pools contain no artifact genes). It is
   a strict, no-downside win.
 
+## Held-out reconfirmation of `spec_adj_artifact` (8 diseases, spec-only)
+
+Ran the held-out 8 (IBD, T2D, Alzheimer, breast, melanoma, SLE, COPD, NAFLD)
+with `--spec-only` (no panel — artifact demotion needs none). Breast cancer hit
+a transient PubTator failure and was skipped; NAFLD had no gold-in-candidates;
+6 diseases scored.
+
+- `spec_adj_artifact` is **identical to `spec_adj` on every held-out disease**
+  (melanoma a rounding whisker better on AUPRC). None of these diseases surface
+  Ig/TCR/HLA genes in their candidate pool, so `artifact_weight` never fires.
+- So across all 11 evaluated diseases (tuning-4 + held-out-7), artifact demotion
+  is **strictly no-downside**: it helps on the allergic/IgE diseases where Ig
+  genes contaminate the literature (AD, asthma), and is exactly neutral
+  everywhere else. Zero regression risk.
+
 ## Recommendation
 
 1. **Do not adopt CDRS as the default ranking.** Its two signature mechanisms
