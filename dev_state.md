@@ -142,16 +142,25 @@ CDRS를 프로덕션에 넣기 전에 **외부·문헌 독립 정답셋**으로 
 - [x] `run_eval.py` ↔ `cdrs_bench.py` 통합 판단: **통합 안 함**. gold source(curated vs OpenTargets
       genetic)도 목적(recall 스모크 vs 랭킹 벤치)도 달라 통합 이득 없음. 둘 다 유지.
 
-**Phase 2 검증(2026-07-07)**:
-- [x] `fetch_pubmed.py` 첫 end-to-end 실행 → **버그 발견·수정**: abstract/title을 `t.text`로 뽑아
-      inline 마크업(`<i>`·`<sub>`·structured-abstract label)으로 시작하는 논문은 빈 문자열로 넘어감
-      (PMID 34106037 실측). → `itertext()`로 수정, XML 파싱을 `parse_pubmed_xml()`로 분리 + offline
-      회귀 테스트(`test_fetch_pubmed.py`). unit test로는 못 잡는 버그 — 실제 PubMed XML 필요.
+**Phase 2~4 end-to-end 검증(2026-07-07, atopic dermatitis 상위 8 gene)**:
+- [x] 파이프라인 전체(Phase 2 수집 → 3 gene별 요약 → 4 통합 문서)를 처음으로 끝까지 실행. 산출:
+      `output/atopic-dermatitis/lit/*.json` + `gene_literature_review.md`(gitignore).
+- [x] PMID 인용 무결성 자동 검증: 인용 36개 전부 실존 + per-gene 파일 기준 교차오염 0(각 섹션이
+      자기 gene 파일 PMID만 인용).
+- [x] **버그 #1 (inline 마크업)**: abstract/title을 `t.text`로 뽑아 inline 마크업(`<i>`·`<sub>`·
+      structured-abstract label)으로 시작하는 논문은 빈 문자열로 넘어감(PMID 34106037 실측). →
+      `itertext()`로 수정, XML 파싱을 `parse_pubmed_xml()`로 분리.
+- [x] **버그 #2 (pmcid reference 오염)**: efetch가 논문 + 참고문헌 전체를 반환하는데 `.//ArticleId`가
+      reference의 PMC를 주워 access 라벨(anti-hallucination 핵심 기능)이 무작위 reference를 반영.
+      PMID 40563478 자기 PMC가 reference 것으로 덮임, book chapter 38724781이 full-text로 오분류. →
+      `./PubmedData/ArticleIdList/ArticleId` 직속 경로로 제한. 둘 다 `test_fetch_pubmed.py`가 가드.
+- 교훈: 두 버그 다 **unit test로는 못 잡고 실제 end-to-end run으로만** 드러남(실 PubMed XML 필요).
 
 **남은 작업**:
-- [ ] Phase 3~4는 스크립트가 아니라 SKILL.md의 프롬프트/템플릿 지침(gene별 요약·통합 문서). 아직
-      어떤 output에도 `lit/`·`gene_literature_review.md`가 없음 = **한 번도 end-to-end 실행 안 됨**.
-      실제 키워드로 파이프라인을 끝까지 돌려야 요약 품질·PMID 인용·문서 형식이 검증됨.
+- [ ] Phase 3~4는 스크립트가 아니라 SKILL.md의 프롬프트/템플릿 지침 — 로직 자체엔 회귀 가드가 없음
+      (LLM 실행). 다른 키워드(비면역질환 등)로 추가 실행하면 템플릿 견고성 더 확인 가능.
+- [ ] access 라벨은 이제 정확하나 "full-text"가 곧 전문 읽음을 뜻하진 않음 — Phase 3는 여전히 abstract만
+      읽음. PMC 전문까지 실제로 당겨 읽는 경로는 미구현(SKILL은 abstract 기반 요약을 기본으로 명시).
 
 **다음 에이전트가 먼저 읽을 것**: `docs/cdrs-eval-findings.md`(왜 CDRS를 접었는가), 이 파일, 그리고
 Phase 1 랭킹을 건드린다면 `scripts/test_fetch_genes.py`(회귀 가드).
