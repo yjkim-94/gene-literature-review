@@ -46,7 +46,7 @@
   .step.done .bar i{width:100%}
   .step.active .bar i{width:var(--p,0%); transition:width .25s linear}
   .step .lab{display:flex; gap:8px; align-items:baseline; margin-top:8px}
-  .step .n{font-family:var(--mono); font-size:12px; color:var(--mut2)}
+  .step .n{font-family:var(--mono); font-size:12px; color:var(--mut)}
   .step .t{font-size:12.5px; color:var(--mut); letter-spacing:.01em}
   .step.active .n{color:var(--sig)} .step.active .t{color:var(--txt)}
 
@@ -57,19 +57,20 @@
     transition:opacity .45s ease, transform .45s ease; display:flex; flex-direction:column}
   .scene.on{opacity:1; transform:none; pointer-events:auto}
   .scene h2{margin:0; font-size:13px; font-family:var(--mono); color:var(--sig); letter-spacing:.06em; text-transform:uppercase; display:flex; align-items:center; gap:10px}
-  .scene h2 .idx{color:var(--mut2)}
+  .scene h2 .idx{color:var(--mut)}
   .scene .sub{color:var(--mut); font-size:14px; margin:7px 0 0; max-width:64ch}
   .scene .sub b{color:var(--txt); font-weight:600}
   .body{flex:1; display:flex; align-items:center; margin-top:6px}
 
   .chip{font-family:var(--mono); font-size:13px; padding:5px 10px; border-radius:7px; border:1px solid var(--line2); background:var(--panel); white-space:nowrap}
   .chip.sig{border-color:var(--sig-dim); color:var(--sig); background:var(--brand-tint,#F1F3FE); box-shadow:0 0 0 1px rgba(78,91,220,.06) inset}
-  .chip.warn{border-color:var(--warn-dim); color:var(--warn)}
-  .arrow{color:var(--mut2); font-family:var(--mono)}
+  .chip.warn{border-color:var(--warn-dim); color:#B93D23}
+  .chip[style*="--amber"]{color:#8A5A06!important; border-color:rgba(225,146,11,.45)!important}
+  .arrow{color:var(--mut); font-family:var(--mono)}
   .note{border:1px solid var(--line); border-radius:9px; padding:11px 13px; background:rgba(78,91,220,.035)}
   .note .h{font-size:12px; font-family:var(--mono); letter-spacing:.02em; margin-bottom:3px}
   .note p{margin:0; font-size:12.5px; color:var(--mut)}
-  .ok{color:var(--sig)} .bad{color:var(--warn)} .amb{color:var(--amber)}
+  .ok{color:var(--sig)} .bad{color:#B93D23} .amb{color:#8A5A06}
 
   /* scene1 */
   .flow{display:flex; align-items:center; gap:12px; flex-wrap:wrap}
@@ -108,8 +109,8 @@
   .stat{flex:1 1 150px; border:1px solid var(--line); border-radius:10px; padding:12px 13px; background:var(--panel); box-shadow:var(--shadow-card)}
   .stat .k{font-size:11px; font-family:var(--mono); color:var(--mut); letter-spacing:.03em}
   .stat .v{font-family:var(--mono); font-size:22px; margin-top:4px; color:var(--sig)}
-  .stat .v small{font-size:12px; color:var(--mut2)}
-  .shrink{color:var(--amber)!important}
+  .stat .v small{font-size:12px; color:var(--mut)}
+  .stat .v[style*="--amber"], .shrink{color:#8A5A06!important}
 
   /* scene4 ranking */
   .rank{width:100%; display:flex; flex-direction:column; gap:7px}
@@ -121,9 +122,9 @@
   .scene.on .row .track i{animation:grow 1s cubic-bezier(.2,.7,.2,1) forwards; animation-delay:.3s}
   @keyframes grow{to{width:var(--w)}}
   .row .s{text-align:right; color:var(--sig)}
-  .row .rk{color:var(--mut2)}
-  .row.drop{opacity:.28}
-  .row.drop .g{color:var(--warn); text-decoration:line-through}
+  .row .rk{color:var(--mut)}
+  .row.drop{opacity:.58}
+  .row.drop .g{color:#B93D23; text-decoration:line-through}
   .row.drop .track i{background:var(--warn-dim)}
   .row.hero .g{color:var(--sig)}
   .row .flg{font-size:10.5px; color:var(--mut); font-family:var(--sans); margin-left:6px}
@@ -137,14 +138,14 @@
   .agent{border:1px solid var(--line2); border-radius:9px; padding:9px 11px; background:var(--panel); font-family:var(--mono); font-size:11.5px; text-align:center; min-width:96px}
   .agent .sy{color:var(--sig); font-size:13px}
   .agent .pm{color:var(--mut); font-size:10.5px; margin-top:3px}
-  .burn{font-size:10px; color:var(--amber); margin-top:4px}
+  .burn{font-size:10px; color:#8A5A06; margin-top:4px}
 
   /* scene6 matrix */
   .m6{display:grid; grid-template-columns:1fr 1fr; gap:16px; width:100%}
   @media(max-width:680px){.m6{grid-template-columns:1fr}}
   .card{border:1px solid var(--line); border-radius:11px; padding:15px; background:var(--panel); box-shadow:var(--shadow-card)}
   .card h3{margin:0 0 10px; font-size:12px; font-family:var(--mono); letter-spacing:.04em; text-transform:uppercase}
-  .card.fail h3{color:var(--warn)} .card.def h3{color:var(--sig)}
+  .card.fail h3{color:#B93D23} .card.def h3{color:var(--sig)}
   .li{display:flex; gap:10px; padding:7px 0; border-top:1px solid var(--line); font-size:13px}
   .li:first-of-type{border-top:0}
   .li .ic{font-family:var(--mono); flex:none}
@@ -160,13 +161,13 @@
   .controls button:focus-visible{outline:2px solid var(--sig); outline-offset:2px}
   .controls .spacer{flex:1}
   .controls .cnt{font-family:var(--mono); font-size:12px; color:var(--mut)}
-  .foot{margin-top:22px; color:var(--mut2); font-size:12px; font-family:var(--mono)}
-  .foot a{color:var(--sig-dim)}
+  .foot{margin-top:22px; color:var(--mut); font-size:12px; font-family:var(--mono)}
+  .foot a{color:var(--sig)}
 
   /* ---- intro sections ---- */
   .block{margin-top:36px}
   .sec-h{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:14px; border-bottom:1px solid var(--line); padding-bottom:10px}
-  .ey{font-family:var(--mono); font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--sig-dim)}
+  .ey{font-family:var(--mono); font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--sig)}
   .secttl{margin:0; font-size:clamp(18px,2.6vw,23px); font-weight:680; letter-spacing:-.01em}
   .lead{color:var(--mut); max-width:66ch; margin:0 0 16px; font-size:14.5px}
   .lead b{color:var(--txt); font-weight:600}
@@ -179,10 +180,10 @@
   .io-key{font-family:var(--mono); font-size:clamp(24px,4vw,32px); color:var(--warn); margin:14px 0 6px; font-weight:600}
   .io-list{margin:12px 0 6px; display:flex; flex-direction:column; gap:7px}
   .ioline{display:grid; grid-template-columns:70px 1fr auto; gap:10px; align-items:center; font-family:var(--mono); font-size:12.5px}
-  .ioline .g{color:var(--sig)}
+  .io-card.out .ioline > .g{color:var(--sig)}
   .ioline .tr{height:8px; background:var(--panel2); border-radius:5px; overflow:hidden}
   .ioline .tr i{display:block; height:100%; background:linear-gradient(90deg,var(--sig-dim),var(--sig)); border-radius:5px}
-  .ioline .pm{color:var(--mut2); font-size:11px}
+  .ioline .pm{color:var(--mut); font-size:11px}
   .io-sub{color:var(--mut); font-size:12.5px; margin:auto 0 0; padding-top:12px}
   .io-sub b{color:var(--txt)}
   .io-modes{margin:12px 0 0; display:flex; flex-direction:column; gap:7px}
