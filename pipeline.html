@@ -258,14 +258,18 @@
       <div class="body" style="flex-direction:column; align-items:flex-start; gap:0">
         <div class="flow stagger">
           <span class="chip warn">"아토피"</span>
-          <span class="arrow">→ MeSH 해석 →</span>
-          <span class="chip sig">atopic dermatitis</span>
+          <span class="arrow">→ 개념(entity) 해석 →</span>
+          <span class="chip sig">@DISEASE_Dermatitis_Atopic</span>
+        </div>
+        <div class="flow" style="opacity:.75; font-size:12px">
+          <span class="chip">atopic dermatitis</span>
           <span class="chip">atopic eczema</span>
           <span class="chip">neurodermatitis</span>
+          <span style="align-self:center">← 하나의 개념 entity가 동의어를 한 번에 포함</span>
         </div>
         <div class="grid3 stagger">
-          <div class="note"><div class="h ok">빠짐없이 찾기</div><p>논문에서 실제로 쓰는 여러 표현(동의어)으로 바꿔 검색해 관련 논문을 놓치지 않는다</p></div>
-          <div class="note"><div class="h amb">표준 용어집 대조</div><p>바꾼 단어가 공식 의학 용어집에 실제 있는 표현인지 기계가 확인 — 'AD'를 엉뚱하게 알츠하이머로 넓히는 실수 차단</p></div>
+          <div class="note"><div class="h ok">빠짐없이 찾기</div><p>키워드를 논문 색인의 <b>개념 entity</b> 하나로 바꾸면, 그 개념의 동의어(atopic eczema 등)가 별도 OR 검색 없이 한 번에 포함된다</p></div>
+          <div class="note"><div class="h amb">근거량으로 선택</div><p>후보 개념들을 각각의 <b>논문 수</b>와 함께 제시해 근거가 가장 많은 개념을 고름 — 'AD'를 엉뚱하게 알츠하이머로 넓히는 실수 차단</p></div>
           <div class="note"><div class="h">사람이 확인</div><p>뜻이 여러 개로 갈리는 애매한 단어는 사람이 직접 고른다</p></div>
         </div>
       </div>
@@ -411,11 +415,13 @@
   fillPapers(document.getElementById('junk'),40,'junk');
   fillPapers(document.getElementById('real'),8,'real');
 
-  // ranking (scene4) — real atopy run + filtered passengers
+  // ranking (scene4) — real atopy run + filtered passengers.
+  // IGHE는 면역글로불린 구조 아티팩트라 0.5x 감점(0.175→0.088) 후 아래로 내려감 — 삭제는 아님.
   var rows=[
     {r:1,g:'IL31',s:0.5271,hero:0},{r:2,g:'FLG',s:0.4592,hero:1,note:'filaggrin · 아토피 최대 감수성 유전자'},
-    {r:3,g:'MRGPRX2',s:0.2389},{r:4,g:'IGHE',s:0.1750},{r:5,g:'IL13',s:0.1475},
-    {r:6,g:'IL22',s:0.1173},{r:7,g:'JAK1',s:0.0876},{r:8,g:'TNFSF4',s:0.0835},{r:9,g:'STAT6',s:0.0797},
+    {r:3,g:'MRGPRX2',s:0.2389},{r:4,g:'IL13',s:0.1475},{r:5,g:'IL22',s:0.1173},
+    {r:6,g:'JAK1',s:0.0876},{r:7,g:'IGHE',s:0.0875,note:'면역글로불린 아티팩트 · 0.5× 감점'},
+    {r:8,g:'TNFSF4',s:0.0835},{r:9,g:'STAT6',s:0.0797},
     {g:'CD274 (단골 유전자)',s:0.06,drop:1},{g:'CAT (글자만 같은 가짜)',s:0.05,drop:1}
   ];
   var rankEl=document.getElementById('rank'), MAX=0.55;

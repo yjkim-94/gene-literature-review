@@ -18,7 +18,8 @@ gene-literature-review/
 │   ├── fetch_genes.py      keyword → gene list (entity-grounded specificity ranking)
 │   ├── fetch_pubmed.py     per-gene abstracts → files, PMC access-level labels
 │   ├── runlog.py           shared per-phase logger (section headers + timestamped lines, live)
-│   └── test_fetch_genes.py ranking-logic self-check
+│   ├── test_fetch_genes.py ranking-logic self-check
+│   └── test_fetch_pubmed.py abstract-XML parsing self-check (inline markup, pmcid)
 └── evals/                  gene-list recall gold set + automatic measurement
 ```
 
@@ -44,11 +45,12 @@ Each phase also writes a live progress log into the run dir — `phase1_fetch_ge
 | `co_papers` | Papers where the gene entity co-occurs with the keyword/concept entity (specificity numerator). |
 | `gene_papers` | Total papers with the gene entity, keyword or not (specificity denominator). |
 | `specificity` | `co_papers / gene_papers` — how keyword-exclusive the gene is (1 = studied only in this keyword's context, ~0 = ubiquitous passenger). |
-| `spec_adj` | Confidence-adjusted `specificity` (Wilson lower bound) — shrinks thinly-supported genes so a 3/3 ratio can't beat a core gene backed by hundreds. **This is the sort key.** |
+| `spec_adj` | Confidence-adjusted `specificity` (Wilson lower bound) — shrinks thinly-supported genes so a 3/3 ratio can't beat a core gene backed by hundreds. The sort key is this, with the artifact demotion below applied. |
 | `below_floor` | `true` if `gene_papers` < `--min-gene-papers` (default 10): too little evidence, demoted to the bottom (not deleted). |
+| `artifact` | `true` if the symbol is an immunoglobulin/TCR/HLA structural gene (e.g. IGHE) — a recurrent literature artifact. Its sort score is multiplied by 0.5 (demoted, not deleted); validated no-downside in `docs/cdrs-eval-findings.md`. |
 | `evidence_pmids` | Up to 3 representative PMIDs from the entity co-occurrence query (`;`-joined) — real, verifiable evidence, never fabricated. |
 
-Rows are sorted by `spec_adj` descending.
+Rows are sorted by `spec_adj` descending, after the 0.5× artifact demotion is applied to the sort score.
 
 The script also writes a sidecar `genes_all_scored.tsv` (same columns) holding **every scored candidate before the `min_co`/`min_specificity` filter**, so the `spec_adj` cutoff can be judged against the full distribution instead of guessed.
 
@@ -65,6 +67,7 @@ Defended in three layers.
 - **Entity-based specificity** — `specificity = (papers where the @GENE_<id> entity co-occurs with the keyword) / (papers with the @GENE_<id> entity)`, both from PubTator search counts. **Not `[tiab]` string matching**: with string matching, `CAT` (catalase) matches "cat allergen" papers and gets poisoned; as an entity, `@GENE_CAT` resolves to catalase, so that contamination is blocked at the source. Aligning discovery and ranking on the same entity basis is this skill's root fix.
 - **Wilson lower bound ranking** — rank by the lower confidence bound, not the point estimate (`co/total`), so a thinly-supported gene (3 of 3 papers = 1.0) can't beat a core gene backed by hundreds.
 - **Low absolute denominator floor (n<10)** — only true artifacts (total papers < 10) are demoted (not deleted). A percentile floor was dropped — it penalizes a less-studied but highly specific top gene (FDX1, 1565 papers).
+- **Structural-artifact demotion** — immunoglobulin/TCR/HLA symbols (e.g. IGHE) recur in disease abstracts as a literature artifact, not as drivers. Their sort score is halved (0.5×, demoted not deleted). A symbol-regex test, validated no-downside in `docs/cdrs-eval-findings.md`.
 
 The key is that the passenger filter is **statistics, not AI**. Passengers have real co-abstracts, so a grounded AI answers "related" and can't discriminate core from passenger. The AI audit's only real role is **lexical disambiguation of common-word / short symbols** ("is CAT catalase or the animal here?").
 

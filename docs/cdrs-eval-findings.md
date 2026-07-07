@@ -1,7 +1,15 @@
 # CDRS evaluation — findings & recommendation (2026-07-06)
 
-Status: **evaluation complete on the tuning-4 set (two pool sizes). Verdict:
-drop CDRS, ship `spec_adj_artifact`. Sign-off pending (user).**
+Status: **evaluation complete. Verdict adopted (2026-07-07): dropped CDRS,
+shipped `spec_adj_artifact` (artifact demotion) as the default.**
+
+> **Historical note:** the CDRS scoring code has since been removed
+> (`scripts/data/panel_random.tsv`, `build_panel_random.py`, `fetch_genes.py
+> --rank cdrs`, `evals/tune_weights.py`, the `--spec-only` flag). Only the
+> artifact demotion (`is_artifact`) survives in the default ranking, and
+> `evals/cdrs_bench.py` was reduced to a spec-only regression bench. Commands
+> below that name those deleted files are the record of the experiment as run,
+> not runnable instructions. See `dev_state.md`.
 
 ## Question
 
