@@ -23,6 +23,7 @@ Claude Code **skill**. 사용자가 생물학 keyword(질병·pathway·phenotype
 ```
 scripts/fetch_genes.py     Phase 1 — keyword → 특이도 순 ranked gene 목록 (이 repo의 핵심)
 scripts/fetch_pubmed.py    Phase 2 — gene별 PubMed abstract 수집 (lit/<SYMBOL>.json)
+scripts/test_fetch_pubmed.py         Phase 2 XML 파싱 offline 회귀 테스트
 scripts/runlog.py          공용 로깅 (per-phase A+B 로그, tail -f 가능)
 scripts/test_fetch_genes.py          Phase 1 offline 회귀 테스트
 
@@ -141,8 +142,16 @@ CDRS를 프로덕션에 넣기 전에 **외부·문헌 독립 정답셋**으로 
 - [x] `run_eval.py` ↔ `cdrs_bench.py` 통합 판단: **통합 안 함**. gold source(curated vs OpenTargets
       genetic)도 목적(recall 스모크 vs 랭킹 벤치)도 달라 통합 이득 없음. 둘 다 유지.
 
+**Phase 2 검증(2026-07-07)**:
+- [x] `fetch_pubmed.py` 첫 end-to-end 실행 → **버그 발견·수정**: abstract/title을 `t.text`로 뽑아
+      inline 마크업(`<i>`·`<sub>`·structured-abstract label)으로 시작하는 논문은 빈 문자열로 넘어감
+      (PMID 34106037 실측). → `itertext()`로 수정, XML 파싱을 `parse_pubmed_xml()`로 분리 + offline
+      회귀 테스트(`test_fetch_pubmed.py`). unit test로는 못 잡는 버그 — 실제 PubMed XML 필요.
+
 **남은 작업**:
-- [ ] Phase 2~4(문헌 수집·요약·통합 문서)는 초기 구현 상태 — **다음 실질 작업**.
+- [ ] Phase 3~4는 스크립트가 아니라 SKILL.md의 프롬프트/템플릿 지침(gene별 요약·통합 문서). 아직
+      어떤 output에도 `lit/`·`gene_literature_review.md`가 없음 = **한 번도 end-to-end 실행 안 됨**.
+      실제 키워드로 파이프라인을 끝까지 돌려야 요약 품질·PMID 인용·문서 형식이 검증됨.
 
 **다음 에이전트가 먼저 읽을 것**: `docs/cdrs-eval-findings.md`(왜 CDRS를 접었는가), 이 파일, 그리고
 Phase 1 랭킹을 건드린다면 `scripts/test_fetch_genes.py`(회귀 가드).
