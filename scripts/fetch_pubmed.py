@@ -76,13 +76,36 @@ def parse_pubmed_xml(xml_text):
         for aid in art.findall("./PubmedData/ArticleIdList/ArticleId"):
             if aid.get("IdType") == "pmc":
                 pmcid = aid.text
+        is_retracted = any(
+            pt.get("UI") == "D016441" or (pt.text or "").strip() == "Retracted Publication"
+            for pt in art.findall(".//PublicationTypeList/PublicationType")
+        )
         recs.append({
-            "pmid": pmid, "title": title, "abstract": abstract,
+            "pmid": pmid, "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
+            "title": title, "abstract": abstract,
             "year": year, "journal": journal,
             "access": "full-text" if pmcid else "abstract-only",
-            "pmcid": pmcid,
+            "pmcid": pmcid, "retracted": is_retracted,
         })
     return recs
+
+
+def require_confirmation(genes_path):
+    """Refuse to proceed unless a human-written confirmation file exists.
+
+    Looks for `genes.confirmed` next to --genes (the run dir). The file must
+    exist and contain the token 'OK' (case-insensitive). This is a fail-closed
+    gate: the default state is 'stop', so a forgotten review can't silently
+    flow into literature collection. See SKILL.md Phase 2.
+    """
+    conf = os.path.join(os.path.dirname(genes_path) or ".", "genes.confirmed")
+    # WHY: the Phase 1 -> Phase 2 human gene review must be enforced by code,
+    # not left as an instruction that can be skipped in unattended runs.
+    if not (os.path.exists(conf) and "OK" in open(conf, encoding="utf-8").read().upper()):
+        raise SystemExit(
+            f"gene list not confirmed. Review {genes_path}, then write 'OK' into "
+            f"{conf} and re-run. (Phase 1->2 gate.)"
+        )
 
 
 def fetch_abstracts(pmids):
@@ -100,6 +123,7 @@ def main():
     ap.add_argument("--per-gene", type=int, default=5)
     ap.add_argument("--out-dir", help="default: lit/ next to --genes (same run dir)")
     args = ap.parse_args()
+    require_confirmation(args.genes)
 
     # Default the output beside genes.tsv so the run dir stays self-contained
     # and the slug (owned by fetch_genes.py) is never re-derived here.

@@ -16,10 +16,12 @@ gene-literature-review/
 ├── pipeline.html           animated end-to-end explainer (open in a browser)
 ├── scripts/
 │   ├── fetch_genes.py      keyword → gene list (entity-grounded specificity ranking)
-│   ├── fetch_pubmed.py     per-gene abstracts → files, PMC access-level labels
+│   ├── fetch_pubmed.py     per-gene abstracts → files, PMC access labels, retraction flag, confirmation gate
+│   ├── verify_citations.py mechanical PMID citation check (review md vs lit/*.json, exit code)
 │   ├── runlog.py           shared per-phase logger (section headers + timestamped lines, live)
 │   ├── test_fetch_genes.py ranking-logic self-check
-│   └── test_fetch_pubmed.py abstract-XML parsing self-check (inline markup, pmcid)
+│   ├── test_fetch_pubmed.py abstract-XML parsing self-check (inline markup, pmcid, retraction)
+│   └── test_verify_citations.py citation-verifier self-check
 └── evals/                  gene-list recall gold set + automatic measurement
 ```
 
@@ -59,7 +61,7 @@ The script also writes a sidecar `genes_all_scored.tsv` (same columns) holding *
 The two failure modes this skill must prevent, in priority order:
 
 ### 1. Hallucination — invented genes / papers / associations
-The pipeline has **no generative source of gene identity.** Symbols come only from PubTator NER GeneID → NCBI esummary, and PMIDs only from entity-grounded queries. The AI's roles (concept resolution · audit) are **strictly subtractive** and it **never names a gene** — the single invariant to enforce.
+The pipeline has **no generative source of gene identity.** Symbols come only from PubTator NER GeneID → NCBI esummary, and PMIDs only from entity-grounded queries. The AI's roles (concept resolution · audit) are **strictly subtractive** and it **never names a gene** — the single invariant to enforce. For the per-gene summaries, `verify_citations.py` then **mechanically re-checks** that every cited PMID exists in that gene's collected file (string match, no AI — so the check can't hallucinate either), and Phase 2 flags PubMed-**retracted** papers (`retracted`) so they are dropped from the evidence.
 
 ### 2. Irrelevant genes — passengers / mis-tags / wrong-disease genes leaking in
 Defended in three layers.
@@ -70,6 +72,8 @@ Defended in three layers.
 - **Structural-artifact demotion** — immunoglobulin/TCR/HLA symbols (e.g. IGHE) recur in disease abstracts as a literature artifact, not as drivers. Their sort score is halved (0.5×, demoted not deleted). A symbol-regex test, validated no-downside in `docs/cdrs-eval-findings.md`.
 
 The key is that the passenger filter is **statistics, not AI**. Passengers have real co-abstracts, so a grounded AI answers "related" and can't discriminate core from passenger. The AI audit's only real role is **lexical disambiguation of common-word / short symbols** ("is CAT catalase or the animal here?").
+
+**Caveat — specificity is co-occurrence, not proven association.** It counts a gene+keyword paper even when the paper reports *no* association (or uses the gene as a control), so it measures how much a gene is *studied in the keyword's context*, not a causal/association claim. The ranked list is a **lead set to verify against the abstracts** — which is exactly what the evidence PMIDs and the Phase 2–4 abstract layer are for.
 
 ### 3. Keyword expansion (search problem)
 "아토피" (Korean) returns 0 hits in PubTator, and "atopy" misses the dominant term "atopic dermatitis," collapsing recall. → **Resolve the keyword to a PubTator concept entity** and pass it as `--entity` (e.g. `@DISEASE_Dermatitis_Atopic`). The specificity query becomes `"@GENE_<id>" AND "<entity>"`, which **unions the concept's surface synonyms** ("atopic eczema", "infantile eczema" → one disease entity) in a single exact call. **Not OR-expansion**: a grouping-less synonym OR collapses the PubTator parser (measured: `atopic dermatitis OR atopic eczema` → 20,466, *below* the single term's 66,111), and free-text synonyms are not auto-normalized. `python scripts/fetch_genes.py --keyword "<kw>" --resolve` lists the candidate entities with their paper counts so the concept is chosen by evidence, not by an AI's dominant-sense guess (blocks "AD"→Alzheimer mis-mapping); ambiguous / short keywords still require human confirmation. Novel terms with no MeSH entity (cuproptosis) omit `--entity` and proceed literal (free-text).
@@ -83,11 +87,13 @@ Putting gene × paper × abstract into context makes cost grow quadratically. �
 - **Entity-grounded specificity (live)**: cuproptosis → FDX1(0.64) > DLAT > SLC31A1 > PDHA1, passengers (CD274/CDKN2A/PDCD1) all filtered out.
 - **atopic dermatitis (entity `@DISEASE_Dermatitis_Atopic`)**: FLG (filaggrin, the top AD susceptibility gene), TSLP, IL31/IL13/STAT6/JAK1 etc. are real AD genes, zero hub/passenger contamination.
 - **gene-list recall (evals)**: `python evals/run_eval.py`, mean recall@20 = 0.83.
+- **Abstract parsing + Phase 2 gates**: `python scripts/test_fetch_pubmed.py` — inline-markup abstracts survive, retraction flag (D016441 yes / D016440 no), confirmation gate stops without `genes.confirmed`.
+- **Citation grounding**: `python scripts/test_verify_citations.py` — orphan PMIDs are detected; on the live atopic-dermatitis review, 31 citations checked, 0 orphans.
 
 ## Not implemented (known gaps)
 
 - **Numerator down-weighting** (for large reviews listing many genes) — the Wilson lower bound absorbs most of it, and per-paper fetching would be costly, so deferred.
-- **Retraction filter** — excluding/marking retracted papers (`Retracted Publication` publication type); belongs to Phase 2, tracked separately.
+- **Co-occurrence polarity** — specificity can't tell a "gene X drives disease Y" paper from a "no association between X and Y" paper; both count. Documented as a caveat (verify against abstracts), not auto-detected — reliable negation/relation extraction is a heavy NLP task of its own.
 
 See `DESIGN.md` for the design rationale and loop-validation history.
 

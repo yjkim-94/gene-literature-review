@@ -1,7 +1,7 @@
 # gene-literature-review — 개발 상태 (dev_state)
 
 > 목적: 이 프로젝트가 **무엇을·왜·어떻게** 만들어졌는지, 그리고 **무엇을 시도했다 접었는지**를 한 곳에 정리.
-> 사람과 다른 에이전트가 맥락을 빠르게 잡는 용도. 최종 갱신: 2026-07-07 (HEAD `36d44a2`).
+> 사람과 다른 에이전트가 맥락을 빠르게 잡는 용도. 최종 갱신: 2026-07-07 (HEAD `9956a5b`).
 
 ---
 
@@ -22,8 +22,10 @@ Claude Code **skill**. 사용자가 생물학 keyword(질병·pathway·phenotype
 
 ```
 scripts/fetch_genes.py     Phase 1 — keyword → 특이도 순 ranked gene 목록 (이 repo의 핵심)
-scripts/fetch_pubmed.py    Phase 2 — gene별 PubMed abstract 수집 (lit/<SYMBOL>.json)
-scripts/test_fetch_pubmed.py         Phase 2 XML 파싱 offline 회귀 테스트
+scripts/fetch_pubmed.py    Phase 2 — gene별 PubMed abstract 수집 (lit/<SYMBOL>.json); retraction flag·PMID url·확인 gate 포함
+scripts/verify_citations.py Phase 4 — 인용 PMID가 per-gene 파일에 실존하는지 기계 대조 (AI 아님, exit code)
+scripts/test_fetch_pubmed.py         Phase 2 XML 파싱·retraction·gate offline 테스트
+scripts/test_verify_citations.py     인용 검증 self-check
 scripts/runlog.py          공용 로깅 (per-phase A+B 로그, tail -f 가능)
 scripts/test_fetch_genes.py          Phase 1 offline 회귀 테스트
 
@@ -96,6 +98,26 @@ CDRS를 프로덕션에 넣기 전에 **외부·문헌 독립 정답셋**으로 
 - `36d44a2` **artifact 감점만 default에 채택.** CDRS 나머지(z_rel·hub_penalty·panel)는 폐기,
   `--rank cdrs` 실험 컬럼으로만 보존.
 
+### (E) 문헌조사 무결성 안전장치 — 2026-07-07 (`9956a5b`)
+AI 문헌조사 리스크 감사에서 "안전장치가 prompt 지시뿐이거나 아예 없는" 무결성 공백을 발견 → 코드/문서로
+보강(`DESIGN.md` Design G). identity-hallucination·token 방어는 이미 견고했고, 남은 공백만 저비용으로 닫음:
+- **①철회 필터**: `fetch_pubmed.py`가 `PublicationType D016441`(철회 논문; D016440 *공지*는 제외) 파싱
+  → 논문별 `retracted` 필드. 요약에서 ⚠철회 표기·근거 제외.
+- **②인용 기계 검증**: `verify_citations.py` 신규 — 최종 md의 각 gene 섹션이 인용한 PMID가 그 gene
+  `lit/*.json`에 실존하는지 **문자 대조**(모델 없음 → 검증 자체가 hallucinate 불가), orphan 있으면 exit 1.
+- **③access 라벨 정직화**: `full-text` = 무료 전문 *이용 가능*(요약은 abstract 기준)임을 문구로 명확화.
+  read-depth 과장 제거(라벨이 뜻하던 "how far read"는 실제로 availability였음).
+- **④co-occurrence caveat**: `spec_adj`는 "그 병 맥락에서 연구된 정도"(무관·부정 결과 포함)이지 인과·연관의
+  증명이 아님을 명시 — ranked list는 abstract로 검증할 lead set. 최종 판단은 사람.
+- **⑤확인 gate(fail-closed)**: Phase 1→2 사람 검토를 코드로 강제 — `genes.confirmed`(OK 포함) 없으면
+  `fetch_pubmed.py`가 exit. default 상태가 "정지"라 미검토 자동 진행이 불가.
+- **하이퍼링크**: 논문 레코드에 `url`, 최종 md의 PMID를 PubMed 클릭 링크 + gene별 "전체 보기" 링크.
+- **저수준 데이터 접근은 이미 상품화**(웹 조사): PubMed/PubTator/OpenTargets/BioMCP MCP가 존재 →
+  fetch 계층은 대체 가능하나, specificity 랭킹 + 이 안전장치 계층은 기성 MCP에 없음(= 실제 부가가치).
+- **실사용 테스트**(atopic dermatitis, max 5·scan 300, 서브에이전트 실행 → Claude 재검증): gate 차단
+  exit 1 확인, lit json에 `url`·`retracted` 존재, `verify_citations` 25개 인용 orphan 0, 클릭 링크
+  25 + 전체보기 5. 전 안전장치 실데이터 관통 — 단 이 키워드엔 철회 논문 0편이라 ⚠철회 경로는 unit test로만 커버.
+
 ---
 
 ## 4. 시행착오 & 교훈 (핵심 — 다음 에이전트가 반복하지 말 것)
@@ -127,6 +149,10 @@ CDRS를 프로덕션에 넣기 전에 **외부·문헌 독립 정답셋**으로 
 9. **Windows/Z: 드라이브 + Codex.** Codex 샌드박스가 Z:(RaiDrive)를 못 봄 → `--sandbox
    danger-full-access`로 직접 실행하거나 C: 로컬 클론에서 작업. (이 프로젝트 후반 구현은 Codex가
    담당하고 Claude가 감독·검증·통합하는 방식으로 진행.)
+10. **prompt 지시만으로는 안전장치가 아니다.** Phase 3 인용 규율이 "파일의 PMID만 인용하라"는 프롬프트
+    문장뿐이었고 사후 검증이 없었다. 검증을 **코드로**(문자 대조, 모델 없음) 내리자 "검산이 또 hallucinate
+    하면?"이라는 사슬도 끊김 — 문자 비교엔 지어낼 여지가 없음(`verify_citations.py`). 마찬가지로 사람 검토
+    gate도 지시가 아니라 fail-closed 코드로 강제. → **신뢰의 근거는 지시가 아니라 기계적 확인.**
 
 ---
 
@@ -165,9 +191,13 @@ CDRS를 프로덕션에 넣기 전에 **외부·문헌 독립 정답셋**으로 
       → 템플릿이 특정 도메인/작성자에 의존하지 않고 견고함을 입증([[delegate-simple-coding-to-codex]] 방식).
 
 **남은 작업**:
-- [ ] access 라벨은 이제 정확하나 "full-text"가 곧 전문 읽음을 뜻하진 않음 — Phase 3는 여전히 abstract만
-      읽음. PMC 전문까지 실제로 당겨 읽는 경로는 미구현(SKILL은 abstract 기반 요약을 기본으로 명시).
-- [ ] Phase 3~4 로직 자체엔 회귀 가드 없음(LLM 실행) — 대규모 gene(10+) subagent fan-out 경로는 미검증.
+- [ ] `full-text` 라벨 문구는 정직화됨(§3E③)이나, PMC 전문을 실제로 당겨 읽는 경로는 여전히 미구현 —
+      Phase 3는 abstract 기반 요약이 기본(SKILL 명시).
+- [ ] Phase 3~4 산출물의 **인용**은 이제 `verify_citations.py`로 기계 가드(§3E②)되나, 요약 prose 품질과
+      대규모 gene(10+) subagent fan-out 경로는 여전히 LLM 실행 의존 + 실검증 미완.
+- [ ] ⚠철회 경로는 unit test(D016441)로만 커버 — 철회 논문이 실제 포함되는 키워드로 end-to-end 실검증 미완.
+- [ ] fetch 계층을 기성 MCP(BioMCP/PubTator/PubMed)로 대체할지 검토 — 유지보수 이득 vs 현 스크립트의
+      세밀한 제어(entity 양쪽 quoting·co/total 동일 basis·artifact regex·access 라벨 픽스) 재현 여부.
 
 **다음 에이전트가 먼저 읽을 것**: `docs/cdrs-eval-findings.md`(왜 CDRS를 접었는가), 이 파일, 그리고
 Phase 1 랭킹을 건드린다면 `scripts/test_fetch_genes.py`(회귀 가드).

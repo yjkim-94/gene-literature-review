@@ -28,7 +28,7 @@ The slug is computed **once**, by `fetch_genes.py` from `--keyword`; downstream 
 The goal is to prevent this skill's two biggest risks.
 
 1. **Token blow-up**: putting gene × paper × abstract text into context makes cost grow quadratically with gene count. → **A script fetches the abstract text into files, not the LLM.** Raw abstract text is never loaded into the main context.
-2. **Hallucination (invented papers / distorted summaries)**: literature review easily fabricates unread papers or misrepresents abstracts. → **Every claim cites a real PMID**, and each carries a label for how far the text was read (**abstract-only / full-text**).
+2. **Hallucination (invented papers / distorted summaries)**: literature review easily fabricates unread papers or misrepresents abstracts. → **Every claim cites a real PMID**, and after the summary is written `verify_citations.py` **mechanically re-checks** that every cited PMID actually exists in that gene's collected file (a string comparison — the verifier itself can't hallucinate). Each paper carries an **access label**: `full-text` = a free PMC open-access full text *exists*, `abstract-only` = only the abstract is public. **The summary is built from the abstract in either case**, so the label marks availability, not how deeply the paper was read. **Retracted papers are flagged** (`retracted`) and dropped from the evidence.
 
 ## User-facing output format (each block fixed — same every session)
 
@@ -97,8 +97,9 @@ full-text : <ft>편 / abstract-only : <ab>편
 ```
 ■ Phase 4 · 통합 문서 완료
 
-저장 : output/<slug>/gene_literature_review.md
-gene : <N>개 · 근거 논문 <총합>편
+저장     : output/<slug>/gene_literature_review.md
+gene     : <N>개 · 근거 논문 <총합>편
+인용검증 : verify_citations orphan <n>편
 
 → .docx 변환할까요? (md-to-docx)
 ```
@@ -178,6 +179,8 @@ Read the result file and **confirm the gene list with the user first**. When the
 
 **Read spec_adj and co_papers as two axes, not one hard cut.** `spec_adj` is keyword *specificity*, not keyword *relatedness*. A pleiotropic hub gene truly central to the keyword (IL4, STAT6, CD8A for atopy) has a huge total-paper denominator, so its specificity is structurally suppressed and it sinks below the cutoff — a false negative (measured: IL4 co=8409, overwhelming evidence, yet spec_adj ~0.083, mid-low). And in the boundary band the `spec_adj` curve is smooth (0.018 → 0.008 with no elbow), so a single hard threshold has no natural place to fall — it will always clip a legitimate near-miss (e.g. a known keyword miRNA landing just under 0.015). So don't report one thresholded list as the whole answer. Read `genes_all_scored.tsv` on both axes and label **two zones**: **core/specific** (high `spec_adj`) and **related-but-pleiotropic** (high `co_papers`, low `spec_adj`) — surface the second zone's high-`co` genes explicitly instead of letting the specificity cut bury them. (A relative-percentile floor is not the fix — it was already dropped for demoting niche core genes; keep the absolute floor and add the co-axis read on top.)
 
+**Caveat — `spec_adj` measures *studied-together*, not *proven association*.** Co-occurrence counts a gene+keyword paper regardless of polarity: a paper reporting **no** association, or using the gene as a control, still counts. So read the ranked list as a **lead set to verify against the abstracts**, never as a causal/association claim on its own. This is why the evidence PMIDs and Phase 2–4 abstract check exist — the statistic ranks, the abstracts adjudicate.
+
 ### Large requests (hundreds–1000): list-centric mode
 
 For hundreds–1000 genes, skip per-gene literature summaries — collecting and summarizing 1000 abstracts is impractical and unnecessary for list accuracy. **The Phase 1 TSV (ranking · specificity · evidence PMIDs) is the final deliverable**; skip Phases 2–3 (optionally apply them only to a top-N).
@@ -190,7 +193,10 @@ For hundreds–1000 genes, skip per-gene literature summaries — collecting and
 
 Collect abstracts for the confirmed gene list. **Do not read abstract text in this phase** — the script writes to files only.
 
+**Confirmation gate (enforced by the script, fail-closed).** Phase 2 will not run until the gene list is human-confirmed. After the user approves the list at the `Phase 1 · 결과` checkpoint, record that approval by writing `OK` into `output/<slug>/genes.confirmed`, *then* run the collector. `fetch_pubmed.py` hard-stops (exit) if that file is missing or lacks `OK`, so an un-reviewed list can never silently flow into collection — the default state is "stop." Do not write the file before the user has actually confirmed.
+
 ```bash
+echo OK > output/<slug>/genes.confirmed    # only after the user confirms the Phase 1 list
 python scripts/fetch_pubmed.py --genes output/<slug>/genes.tsv --keyword "<keyword>" \
   --per-gene 5
 # writes output/<slug>/lit/ by default (next to --genes). --out-dir overrides.
@@ -199,11 +205,13 @@ python scripts/fetch_pubmed.py --genes output/<slug>/genes.tsv --keyword "<keywo
 Produces `output/<slug>/lit/<symbol>.json` per gene. Each paper record:
 
 ```json
-{"pmid": "12345678", "title": "...", "abstract": "...", "year": 2021,
- "journal": "...", "access": "full-text" | "abstract-only", "pmcid": "PMC..." | null}
+{"pmid": "12345678", "url": "https://pubmed.ncbi.nlm.nih.gov/12345678/",
+ "title": "...", "abstract": "...", "year": 2021,
+ "journal": "...", "access": "full-text" | "abstract-only",
+ "pmcid": "PMC..." | null, "retracted": true | false}
 ```
 
-`access` is `full-text` when a PMC open-access full text exists, else `abstract-only`. Only the top `--per-gene` papers (by relevance) are fetched per gene to bound scale.
+`access` is `full-text` when a PMC open-access full text **exists**, else `abstract-only` — this marks whether a free full text is *available*; the abstract is what gets summarized either way. `url` is the ready-made PubMed link (so the summary step never reconstructs it). `retracted` is `true` for papers PubMed tags `Retracted Publication` (MeSH D016441) — flag these and drop them from the evidence. Only the top `--per-gene` papers (by relevance) are fetched per gene to bound scale.
 
 ## Phase 3 — Per-gene summary (identical template)
 
@@ -234,10 +242,12 @@ Summarize gene <SYMBOL> using ONLY the abstracts in that file, following this ex
 ### <SYMBOL> — <full gene name>
 - **키워드와의 연관성**: 2~3문장. 각 주장 끝에 근거 PMID를 [PMID:xxxxxxxx] 형식으로 단다.
 - **주요 발견**: 불릿 2~4개. 각 불릿에 PMID 인용 필수.
-- **근거 논문**: 표 | PMID | 연도 | 접근수준 | 한 줄 요지 |
+- **근거 논문**: 표 | PMID | 연도 | 접근수준 | 한 줄 요지 | — PMID 칸은 파일의 "url"을 써서 [xxxxxxxx](https://pubmed.ncbi.nlm.nih.gov/xxxxxxxx/) 클릭 링크로 만든다.
+- **근거 논문 전체 보기**: [PubMed에서 열기](https://pubmed.ncbi.nlm.nih.gov/?term=PMID+PMID+...) — 이 gene의 모든 PMID를 +로 이어붙인 링크.
 
 Rules:
 - Cite ONLY PMIDs that exist in the file. Never invent a PMID or a finding.
+- If a paper's "retracted" is true, mark its 접근수준 칸에 ⚠철회 and do NOT use it in 연관성/주요 발견 (drop it as evidence).
 - If a claim is from an abstract-only paper, that is fine — the access column records it.
 - If the file has no papers, write "관련 문헌 없음" and stop.
 Return only the filled template, nothing else.
@@ -264,10 +274,20 @@ Assemble the per-gene summaries into a final document. **Save it as `output/<slu
 ## 방법
 - Gene 목록: NCBI Gene, keyword="<keyword>", organism=<...>, N=<...>
 - 문헌: PubMed E-utilities, gene당 상위 <per-gene>편, 수집일 <YYYY-MM-DD>
-- 접근수준: full-text=PMC open-access 전문 확인, abstract-only=abstract만 확인
+- 접근수준: full-text=PMC 무료 전문 이용 가능(요약은 abstract 기준), abstract-only=abstract만 공개
+- 철회 논문: PubMed가 Retracted Publication으로 표시한 논문은 ⚠철회로 표기하고 근거에서 제외
+- 인용 검증: verify_citations.py로 인용된 모든 PMID가 수집 파일에 실재함을 기계 대조(orphan 0)
+- 주의: spec_adj(특이도)는 "그 병 맥락에서 얼마나 연구됐는가"의 지표로 동시 등장(부정·무관 결과 포함)을 셈 — 인과·연관의 증명이 아니며 최종 판단은 근거 abstract 확인 필요
 ```
 
-At the end, if the user wants it, offer `.docx` conversion via the `md-to-docx` skill.
+After saving, **verify citations mechanically** before offering the doc as final:
+
+```bash
+python scripts/verify_citations.py --review output/<slug>/gene_literature_review.md
+# exit 0 = every cited PMID exists in its gene's lit/*.json; exit 1 lists orphans.
+```
+
+If it reports any orphan citation, re-summarize the offending gene (the summary cited a PMID not in the collected file) and re-run until orphan = 0. Then, if the user wants it, offer `.docx` conversion via the `md-to-docx` skill.
 
 ## Notes
 

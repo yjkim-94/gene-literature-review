@@ -230,6 +230,22 @@ Two findings overturn Plan D: (1) free-text synonyms are **not** auto-normalized
 - **Fixed user-facing output blocks** per checkpoint (SKILL.md) for run-to-run consistency.
 - Validated by an external Codex adversarial pass (Design C meta rule): 2 FATAL found (empty-slug collapse, `--resolve` malformed-JSON crash) → fixed → 0 FATAL remaining.
 
+## Design G — Literature-review integrity audit (2026-07-07)
+
+A risk review of "AI-assisted literature review" found the identity-hallucination and token defenses solid (Designs C/D + Phase 2 files), but three integrity gaps where a safeguard was prompt-only or missing, plus two framing gaps. All are cheap; adopted:
+
+| # | Gap found | Fix adopted | Enforced by |
+|---|-----------|-------------|-------------|
+| 1 | **Retracted papers** cited as valid evidence (no check) | Parse `PublicationType` UI **D016441** (not the D016440 *notice*) → `retracted` field; summary drops it, marks ⚠철회 | `fetch_pubmed.py` (code) |
+| 2 | Phase 3 citation grounding was **prompt-only** — nothing re-checked the summarizer | `verify_citations.py`: per-gene, every cited PMID must exist in that gene's `lit/*.json` — **string match, no AI**, exit 1 on orphan | new script + test |
+| 3 | **`full-text` label overstated read-depth** — pipeline always summarizes the abstract, even for full-text-available papers | Relabel semantics everywhere: `full-text` = free full text *available*, summary is abstract-based. Honest wording in SKILL/README | docs |
+| 4 | **`spec_adj` read as "association"** — co-occurrence counts negative/no-association papers too | Caveat added: spec_adj = *studied-together in the keyword's context*, a lead set to verify against abstracts, not a causal claim | docs |
+| 5 | Phase 1→2 human gene-list review was an **instruction**, skippable in unattended runs | Fail-closed gate: `fetch_pubmed.py` exits unless `genes.confirmed` (contains OK) exists next to `genes.tsv` — default state is "stop" | `fetch_pubmed.py` (code) |
+
+**Why #2's verifier can't itself hallucinate** (the chained-hallucination worry): the check is a `str`-membership test between PMIDs extracted from the review and PMIDs in the collected JSON — no model in the loop, so it returns only true/false. That is the whole point of pushing the check from prompt to code.
+
+Convenience (same iteration): each paper record carries a ready-made `url`, and the summary renders PMIDs as PubMed hyperlinks plus a per-gene "전체 보기" link, so the human's final abstract check (the residual judgment #4 leaves to people) is one click.
+
 ## Open (non-fatal, absorbed by human escalation)
 
 - Ranking quality of the default top MeSH concept.
