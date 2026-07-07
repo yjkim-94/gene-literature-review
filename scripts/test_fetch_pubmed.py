@@ -1,0 +1,57 @@
+#!/usr/bin/env python3
+"""Offline regression test for fetch_pubmed's XML parsing.
+
+The abstract/title extraction silently returned "" for any record whose text
+starts with inline markup (PMID 34106037, measured), feeding empty text to the
+summary step. This guards the itertext() fix with a canned XML snippet that
+reproduces that exact shape.
+"""
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from fetch_pubmed import parse_pubmed_xml
+
+# AbstractText and ArticleTitle both LEAD with a child element, so plain .text is
+# None -- the failure mode. Structured multi-part abstract + a PMC id too.
+XML = """<PubmedArticleSet><PubmedArticle>
+  <MedlineCitation>
+    <PMID>34106037</PMID>
+    <Article>
+      <Journal><Title>Expert review of clinical immunology</Title>
+        <JournalIssue><PubDate><Year>2021</Year></PubDate></JournalIssue></Journal>
+      <ArticleTitle>Role of <i>IL31</i> in atopic dermatitis</ArticleTitle>
+      <Abstract>
+        <AbstractText Label="Introduction"><b>Atopic dermatitis</b> (AD) is common.</AbstractText>
+        <AbstractText Label="Areas covered">IL-31 drives <sub>2</sub> itch signaling.</AbstractText>
+      </Abstract>
+    </Article>
+  </MedlineCitation>
+  <PubmedData><ArticleIdList>
+    <ArticleId IdType="pubmed">34106037</ArticleId>
+    <ArticleId IdType="pmc">PMC8000000</ArticleId>
+  </ArticleIdList></PubmedData>
+</PubmedArticle></PubmedArticleSet>"""
+
+
+def test_inline_markup_text_not_dropped():
+    recs = parse_pubmed_xml(XML)
+    assert len(recs) == 1, recs
+    r = recs[0]
+    assert r["pmid"] == "34106037"
+    # body text that lives AFTER the leading child must survive
+    assert "Atopic dermatitis" in r["abstract"], r["abstract"]
+    assert "itch signaling" in r["abstract"], r["abstract"]
+    assert r["abstract"], "abstract must not be empty"
+    assert "IL31" in r["title"], r["title"]
+    assert r["access"] == "full-text" and r["pmcid"] == "PMC8000000"
+
+
+def test_empty_and_missing():
+    assert parse_pubmed_xml("<PubmedArticleSet></PubmedArticleSet>") == []
+
+
+if __name__ == "__main__":
+    test_inline_markup_text_not_dropped()
+    test_empty_and_missing()
+    print("ok: inline-markup abstracts/titles are extracted, not silently emptied")

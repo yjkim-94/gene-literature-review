@@ -50,17 +50,21 @@ def search_pmids(gene, keyword, n):
     return json.loads(_get(url))["esearchresult"].get("idlist", [])
 
 
-def fetch_abstracts(pmids):
-    if not pmids:
-        return []
-    ids = ",".join(pmids)
-    url = f"{EUTILS}/efetch.fcgi?db=pubmed&id={ids}&rettype=abstract&retmode=xml{_key()}"
-    root = ET.fromstring(_get(url))
+def parse_pubmed_xml(xml_text):
+    """Parse an efetch abstract XML into paper records. Split out from the network
+    call so the itertext() extraction (the part that silently broke on inline
+    markup) is testable offline."""
+    root = ET.fromstring(xml_text)
     recs = []
     for art in root.findall(".//PubmedArticle"):
         pmid = art.findtext(".//PMID", "")
-        title = art.findtext(".//ArticleTitle", "") or ""
-        abstract = " ".join(t.text or "" for t in art.findall(".//Abstract/AbstractText")).strip()
+        # itertext(), not .text/findtext: AbstractText and ArticleTitle wrap inline
+        # markup (<i>, <sub>, structured-abstract labels), so .text is None/partial
+        # and drops the body when it starts with a child element (measured: PMID
+        # 34106037's abstract came back empty under .text).
+        title_el = art.find(".//ArticleTitle")
+        title = "".join(title_el.itertext()).strip() if title_el is not None else ""
+        abstract = " ".join("".join(t.itertext()) for t in art.findall(".//Abstract/AbstractText")).strip()
         year = art.findtext(".//PubDate/Year", "") or art.findtext(".//PubDate/MedlineDate", "")
         journal = art.findtext(".//Journal/Title", "") or ""
         pmcid = None
@@ -74,6 +78,14 @@ def fetch_abstracts(pmids):
             "pmcid": pmcid,
         })
     return recs
+
+
+def fetch_abstracts(pmids):
+    if not pmids:
+        return []
+    ids = ",".join(pmids)
+    url = f"{EUTILS}/efetch.fcgi?db=pubmed&id={ids}&rettype=abstract&retmode=xml{_key()}"
+    return parse_pubmed_xml(_get(url))
 
 
 def main():
