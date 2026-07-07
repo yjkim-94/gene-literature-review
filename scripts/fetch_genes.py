@@ -49,6 +49,7 @@ import time
 import urllib.parse
 import urllib.request
 
+import opentargets
 import runlog
 from runlog import info as log
 
@@ -349,7 +350,20 @@ def resolve_human(cnt, keyword, entity, organism, max_genes, min_spec, min_co, m
 
 
 TSV_COLS = ["symbol", "gene_id", "name", "co_papers", "gene_papers",
-            "specificity", "spec_adj", "below_floor", "artifact", "evidence_pmids"]
+            "specificity", "spec_adj", "below_floor", "artifact", "evidence_pmids",
+            "ot_genetic", "ot_clinical"]
+
+
+def annotate_ot(rows, scores):
+    """Attach display-only OpenTargets scores to already-ranked rows."""
+    for row in rows:
+        score = scores.get(row["symbol"])
+        if not score:
+            continue
+        genetic = score.get("genetic", 0.0)
+        clinical = score.get("clinical", 0.0)
+        row["ot_genetic"] = round(genetic, 3) if genetic else ""
+        row["ot_clinical"] = round(clinical, 3) if clinical else ""
 
 
 def write_tsv(path, genes):
@@ -362,7 +376,9 @@ def write_tsv(path, genes):
                    g["gene_papers"], g["specificity"], g["spec_adj"],
                    str(g["below_floor"]).lower(),
                    str(is_artifact(g["symbol"])).lower(),
-                   ";".join(g["evidence_pmids"])]
+                   ";".join(g["evidence_pmids"]),
+                   g.get("ot_genetic", ""),
+                   g.get("ot_clinical", "")]
             w.writerow(row)
 
 
@@ -390,6 +406,11 @@ def main():
     ap.add_argument("--resolve", action="store_true",
                     help="resolve --keyword to PubTator concept-entity candidates "
                          "(token, biotype, paper count) and exit -- pick one and pass it as --entity")
+    ap.add_argument("--ot-overlay", action="store_true",
+                    help="annotate each gene with OpenTargets genetic_association and "
+                         "clinical(known-drug) scores as a DB cross-reference (display "
+                         "only, not used for ranking); disease keywords only, silently "
+                         "empty otherwise")
     args = ap.parse_args()
 
     # --resolve: objective entity lookup for the query gate, then stop. Prints
@@ -425,6 +446,21 @@ def main():
     genes, all_scored = resolve_human(cnt, args.keyword, args.entity, args.organism, args.max,
                                       args.min_specificity, args.min_co,
                                       args.min_gene_papers)
+
+    if args.ot_overlay:
+        try:
+            efo = opentargets.resolve_efo(args.keyword)
+            if efo is None:
+                log(f"WARNING: OT overlay: no OpenTargets disease match for "
+                    f"'{args.keyword}' -- leaving OT columns empty (non-disease keyword?)")
+            else:
+                efo_id, disease_name = efo
+                log(f"OT overlay: {args.keyword} -> {efo_id} ({disease_name})")
+                ot_scores = opentargets.fetch_target_scores(efo_id)
+                annotate_ot(genes, ot_scores)
+                annotate_ot(all_scored, ot_scores)
+        except Exception as error:
+            log(f"WARNING: OT overlay failed: {error} -- leaving OT columns empty")
 
     write_tsv(out, genes)
     # sidecar dump of every scored candidate (pre-filter) so the spec_adj

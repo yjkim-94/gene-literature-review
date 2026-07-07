@@ -50,6 +50,7 @@ def _empty_result(mondo_id, error=None):
         "n_targets": 0,
         "genetic": {},
         "known_drug": {},
+        "clinical": {},
     }
     if error:
         result["error"] = error
@@ -115,6 +116,7 @@ def _build_raw(mondo_id):
         "n_targets": len(rows),
         "genetic": {},
         "known_drug": {},
+        "clinical": {},
     }
     for row in rows:
         symbol = ((row.get("target") or {}).get("approvedSymbol") or "").strip()
@@ -127,6 +129,8 @@ def _build_raw(mondo_id):
                 raw["genetic"][symbol] = value
             elif score_id == "known_drug" and value > 0:
                 raw["known_drug"][symbol] = value
+            elif score_id == "clinical" and value > 0:
+                raw["clinical"][symbol] = value
     return raw
 
 
@@ -152,12 +156,15 @@ def load_ground_truth(mondo_id, genetic_threshold, refresh=False):
 
     genetic = raw.get("genetic") or {}
     known_drug = raw.get("known_drug") or {}
+    clinical = raw.get("clinical") or {}
     gold = {symbol for symbol, score in genetic.items() if score >= genetic_threshold}
     return {
         "gold": gold,
         "known_drug": set(known_drug),
+        "clinical": set(clinical),
         "genetic_all": genetic,
         "known_drug_all": known_drug,
+        "clinical_all": clinical,
         "n_targets": raw.get("n_targets", 0),
         "disease_name": raw.get("disease_name"),
         "error": raw.get("error"),

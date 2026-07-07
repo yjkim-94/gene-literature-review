@@ -133,6 +133,27 @@ def test_spec_tsv_columns_include_artifact_without_cdrs():
     assert header == fetch_genes.TSV_COLS
     assert header[header.index("artifact")] == "artifact"
     assert values[header.index("artifact")] == "false"
+    assert header[-2:] == ["ot_genetic", "ot_clinical"]
+    assert values[-2:] == ["", ""]
+
+
+def test_annotate_ot_rounds_matches_and_leaves_unmatched_empty():
+    rows = [
+        {"symbol": "FLG"},
+        {"symbol": "IL13"},
+        {"symbol": "NO_MATCH"},
+    ]
+    scores = {
+        "FLG": {"genetic": 0.81234, "clinical": 0.45678},
+        "IL13": {"genetic": 0.23456},
+    }
+    fetch_genes.annotate_ot(rows, scores)
+    assert rows[0]["ot_genetic"] == 0.812
+    assert rows[0]["ot_clinical"] == 0.457
+    assert rows[1]["ot_genetic"] == 0.235
+    assert rows[1]["ot_clinical"] == ""
+    assert rows[2].get("ot_genetic", "") == ""
+    assert rows[2].get("ot_clinical", "") == ""
 
 
 if __name__ == "__main__":
@@ -146,4 +167,5 @@ if __name__ == "__main__":
     test_co_and_total_use_same_gene_form()
     test_wilson_lower_bounds_and_degenerate()
     test_spec_tsv_columns_include_artifact_without_cdrs()
+    test_annotate_ot_rounds_matches_and_leaves_unmatched_empty()
     print("ok: floor + wilson_lower demote tiny-n artifacts, keep specific core genes on top")

@@ -4,7 +4,8 @@
 > 더 효율적·효과적으로 대체할 수 있는지 **측정으로 판정**하고, 나은 건 채택하거나 자체 구현으로 흡수,
 > 아닌 건 폐기한다.
 >
-> **상태**: 계획 수립 완료 · **아직 미실행**. (작성 2026-07-07, HEAD `2742889` 기준)
+> **상태**: **실행 완료 (2026-07-07)**. 결론 = fetch 계층 MCP 대체 전부 부적격(§7·§9), OpenTargets는
+> 보완축으로만. 결과는 §7-1~7-5, 판정은 §5 rubric·§9 최종 결론 참조. (계획 작성 시 HEAD `2742889`)
 >
 > **다음 세션 시작점**: 이 파일 → `dev_state.md` §3(E) → `DESIGN.md` Design G → `docs/cdrs-eval-findings.md`
 > (순환논리·confirmation-bias 교훈) 순으로 읽고, 아래 §6 셋업 → §4 후보별 프로토콜 → §9 체크리스트로 진행.
@@ -132,10 +133,10 @@ artifact 감점 + floor)과 **integrity/orchestration 계층**(verify_citations 
 
 | 후보 | G1 | G2 | G3 | G4 | G5 | effectiveness Δ | efficiency Δ | 결정 |
 |------|----|----|----|----|----|-----------------|--------------|------|
-| A |  |  |  |  | n/a |  |  |  |
-| B |  |  |  |  | n/a |  |  |  |
-| C | n/a |  | n/a |  |  |  |  |  |
-| D |  |  |  |  | n/a |  |  |  |
+| A | **fail** | pass | fail | pass | n/a | 미측정(게이트 탈락) | CLI시 −(무거움) | **discard** — MCP=abstract in-context, CLI=retraction/access 라벨 상실 |
+| B | **fail** | pass | fail(count) | fail | n/a | 미측정(게이트 탈락) | = | **discard** — 정확 co/total count 미노출(PubTator MCP·BioMCP 공히) |
+| C | n/a | pass | n/a | pass | wash(A) / 상보(B) | + (캐시 호출) | **reimplement** — 대체 아님(head-to-head wash), 선택적 2nd-opinion 축으로만 |
+| D | n/a | pass | n/a | pass | n/a | 무 | 무 | **discard** — 이득 없음(B가 탈락이라 병합 대상도 소멸) |
 
 - 불변식 칸: pass / fail / n/a. **하나라도 fail이면 adopt 불가**(reimplement/discard로).
 - Δ: baseline(현 스크립트) 대비 +/-/=. effectiveness는 metric 수치, efficiency는 latency·token·LOC.
@@ -166,11 +167,109 @@ python evals/cdrs_bench.py               # baseline 랭킹 vs OT genetic gold
 
 ## 7. 결과 기록 (채우기)
 
-| 날짜 | 후보 | 확인/측정 | 수치 | 메모 |
-|------|------|-----------|------|------|
-|  |  |  |  |  |
+### 7-1. G1 문서 게이트 (2026-07-07, README/docs 조사 — 설치 前 판정)
 
-(baseline 수치 먼저 박아두기: `run_eval` mean recall@20 = 0.83(README 기준, 재확인), `cdrs_bench` spec_adj_artifact 값.)
+각 서버 README·docs를 조사해 **"bulk 데이터(초록·annotation)를 호출 agent context로 반환하는가, 아니면
+파일저장/count-only/metadata-only 모드가 있는가"**를 판정. §8의 prior(대부분 G1에서 갈림)가 확인됨.
+
+| 후보 | 서버 | G1 판정 | 근거 |
+|------|------|---------|------|
+| A | PubMed MCP (`cyanheads/pubmed-mcp-server`) | **FAIL** | `pubmed_fetch_articles`가 abstract를, `pubmed_fetch_fulltext`가 전문을 **inline 반환**. 파일저장/count-only 모드 문서에 없음 → Phase 2 bulk 수집 대체 부적격(핵심 설계 위반). PMC 링크·pub-type은 있으나 **retraction(D016441) 언급 없음**(G3 부분 미달). |
+| B | PubTator MCP (`JackKuo666/PubTator-MCP-Server`) | **FAIL** | 전 tool(`export_publications`·`batch_export_from_search`)이 annotation·biocjson을 **inline 반환**. **정확 co/total `count` 노출 없음** → G1 위반 + Candidate B의 핵심 요구(count 쿼리) 자체 미충족. |
+| — | BioMCP (`genomoncology/biomcp`) | **PARTIAL → 실측 probe 필요** | counts-first 설계: CLI `--counts-only`, `search all` 집계, 데이터셋 `-o file` 출력, `get article <pmid> tldr`(요약). "output을 compact하게 유지" 명시. **단 MCP 인터페이스 레벨의 counts-only 지원·abstract-in-context 여부는 문서 불충분** → 설치 후 실측 필요. **유일한 G1 생존 후보**. |
+| C | OpenTargets MCP (`Augmented-Nature/OpenTargets-MCP-Server`) | **n/a (소량 JSON)** | disease→ranked targets(size 1-500) 소량 메타데이터라 G1 무관. **★MCP 불필요**: `evals/ground_truth.py`가 이미 OT GraphQL `associatedTargets`(orderByScore `score`) + `datatypeScores.genetic_association`를 직접 쿼리·캐시(`.gt_cache/`). ranked list를 이 기존 쿼리로 재사용 가능 → MCP 래퍼는 순 오버헤드. |
+| D | (entity resolve) | discard(예상대로) | 이득 없음. B가 PubTator I/O를 통째로 가져갈 때만 딸려감 — B가 FAIL이라 사실상 무의미. |
+
+**게이트 결론**: standalone PubMed·PubTator MCP는 문서상 **inline bulk 반환 + 파일/count 탈출구 없음**으로
+G1 확정 탈락(설치·probe 불요). Candidate C는 MCP가 기존 `ground_truth.py`와 중복 → MCP 설치 없이 평가.
+**실제로 설치·probe할 가치가 있는 건 BioMCP 하나뿐**(counts-first 설계라 G1 통과 가능성 있는 유일 후보).
+
+### 7-2. baseline 수치 (하니스 재확인)
+
+| 지표 | 값 | 출처 |
+|------|-----|------|
+| `run_eval` mean recall@20 | **0.92** (ferroptosis 1.00, cuproptosis 1.00, autophagy 0.75) | `python evals/run_eval.py` (2026-07-07 재측정 — README의 0.83보다 높음) |
+| `cdrs_bench` selftest | **pass** | metric·ranking·aggregation self-check |
+| `cdrs_bench` spec_adj_artifact | _(미측정 — Candidate C 평가 시 함께)_ | `python evals/cdrs_bench.py` (OT genetic gold) |
+
+### 7-3. BioMCP 실측 probe (2026-07-07, `biomcp-python` 0.7.3 설치·CLI 직접 호출)
+
+문서 게이트에서 유일하게 살아남은 BioMCP를 실제 설치·호출해 확정. **결론: MCP 경로는 G1 FAIL,
+CLI 경로는 G3 parity 상실 — fetch 계층 대체 후보로 부적격.**
+
+- **`article search -g BRAF -d melanoma --json`** (3편): 2 KB. 필드 = title·journal·authors·date·doi·source·url.
+  **abstract 없음**(metadata-only) → 검색 단계는 G1 친화적. 그러나 **top-level에 total count 없음**
+  (`cbioportal_summary` + `articles[]`만) → **Candidate B(specificity용 co/total count) 충족 못 함**.
+  CLI 0.7.3엔 문서가 말한 `search all --counts-only` 통합 명령이 없음(article-level count 미노출).
+- **`article get 34106037 --json`**: 초록 원문 **inline 반환**(1401자). 필드 = pmid·date·journal·authors·
+  title·abstract·full_text·pubmed_url.
+  - **G3① PASS**: 이 PMID가 바로 우리 inline-markup 버그 케이스인데 초록이 "Introduction: Atopic
+    dermatitis…"로 깨끗이 시작 → inline 마크업 정상(Europe PMC 소스).
+  - **G3② / G3③ FAIL**: 반환에 `pmcid`·`publication_types`·`retraction` **필드 자체가 없음**,
+    `full_text`도 빈 문자열 → **access 라벨(전문 가용성) · 철회 필터(D016441) 재현 불가**. Design G의 무결성
+    기능이 소실됨.
+  - **G1**: MCP로 호출하면 abstract가 context로 올라옴(bulk blow-up) → Phase 2 대체 부적격. CLI로 파일
+    리다이렉트하면 G1은 피하나, 그 순간 biomcp는 `fetch_pubmed.py`보다 **무거운**(scipy·matplotlib·zarr·
+    anndata·alphagenome 등 40+ 의존성) 대체 CLI일 뿐이고 위 G3 parity를 잃음 = "덜 코드"가 아니라 "덜 정확".
+
+**Candidate A/B 종합 판정 (probe로 확정)**: Phase 2(A)·PubTator count(B) 모두 기성 MCP로 대체 시 G1
+또는 G3에서 막힘 — §8의 prior가 실측으로 확정됨. fetch 계층은 현 스크립트 유지가 정답. 유일하게 살아있는
+실험은 **Candidate C(OpenTargets 랭킹)**, 그리고 그건 MCP 없이 기존 `ground_truth.py` 쿼리로 평가 가능.
+
+### 7-4. Candidate C 셋업 (2026-07-07) — gold = OT 임상 신약 타깃
+
+사용자 결정: **gold = OT known-drug(임상) 타깃**(OT-genetic 랭킹과 준독립 → 순환 회피). "OT-genetic 랭킹 vs
+문헌 spec_adj_artifact 랭킹, 어느 쪽이 임상 검증 타깃을 더 잘 회수하나".
+
+- **버그 발견(§4-4 재현)**: `ground_truth.py`가 `datatypeScores.id == "known_drug"`로 파싱하는데,
+  **OT의 실제 datatype id는 `clinical`**(라이브 쿼리로 확인: AD top 타깃 datatypes = genetic_association·
+  literature·genetic_literature·rna_expression·animal_model·**clinical**). → `known_drug` 매칭이 한 번도
+  안 돼 `.gt_cache/` 전 질병 `known_drug={}`(0개)로 저장돼 있었음. **캐시 무효 + 파싱 수정 필요.**
+- 수정 방향: `ground_truth.py`에 `clinical` datatype 파싱 추가 + gt 캐시 refresh. gold = `clinical` score
+  ≥ threshold 타깃.
+- 데이터 가용성: 4 tuning 질병 scored TSV는 `output/atopic-dermatitis`만 캐시됨 → asthma·RA·psoriasis는
+  `fetch_genes` 재실행 필요(PubTator, 순차).
+- 구현은 Codex 위임(신규 `evals/candidate_c_bench.py` + `ground_truth.py` 소패치), Claude가 spec·재검증.
+
+### 7-5. Candidate C 측정 결과 (2026-07-07, 4 tuning 질병, clinical gold)
+
+`python evals/candidate_c_bench.py --refresh-gt` → `evals/output/candidate_c_SUMMARY.md`.
+
+**Measurement A (동일 candidate universe 랭킹 품질, mean across AD·asthma·RA·psoriasis):**
+
+| ranking | P@10 | P@20 | nDCG@20 | AUPRC |
+|---------|------|------|---------|-------|
+| lit (spec_adj_artifact) | **0.550** | **0.425** | 0.532 | 0.489 |
+| ot_genetic | 0.450 | 0.350 | **0.537** | **0.577** |
+
+- **wash**. lit이 최상위 정밀도(P@10/P@20) 우위, ot_genetic이 순위품질(nDCG/AUPRC) 근소 우위(nDCG는
+  0.537 vs 0.532 = noise 수준). **per-disease는 뒤집힘**: AD→lit 완승, asthma→ot 완승(AUPRC 0.842),
+  RA·psoriasis→혼전. CDRS 교훈 #2(단일 케이스로 판단 금지) 패턴 재현 — 어느 쪽도 대체 우위 아님.
+- gold-in-candidates가 질병당 11~22로 작음(clinical gold 총 125~350이나 candidate pool과 겹치는 건 소수).
+
+**Measurement B (complement — OT-genetic top-20이 문헌 top-20이 놓친 clinical 타깃 `ot_only`):**
+
+| 질병 | ot_only (문헌이 놓친 임상 타깃) |
+|------|------|
+| RA | **CD40, IL12B, IL2RA, TRAF3IP2, TYK2** |
+| asthma | IL1RL1 |
+| psoriasis | IL13 |
+| AD | (없음) |
+
+- co-occurrence 랭킹이 **구조적으로 under-rank하는 임상·유전 위험 타깃**을 OT-genetic이 건져올림
+  (특히 RA의 CD40·TYK2·IL2RA — 실제 승인/임상 약물 타깃). 반대로 `lit_only`는 잘 알려진 cytokine
+  (IL17A·IL5·TNF 등)으로 문헌이 강함. → 두 신호가 **상보적**.
+
+**판정: reimplement(보완축) — 대체 아님.**
+- **replace 기각**: 4질병 head-to-head가 wash이고 per-disease가 뒤집힘 → 문헌 랭킹을 OT로 갈아탈 근거
+  없음. 게다가 OT로 갈면 제품이 "문헌근거(PMID) 제시"에서 "curated DB lookup"으로 성격이 바뀜(§4-C 주의).
+- **complement 가치는 실재**: Measurement B가 문헌 co-occurrence의 사각지대(임상 타깃)를 OT-genetic이
+  메운다는 구체 증거를 보임. → 선택적 **2nd-opinion 축**(genetic/clinical cross-check)으로 흡수할 가치.
+  단 실제 feature화는 제품 결정 사항이며, 현 스킬 목적(문헌 lead set + 사람 최종판단, Design G ④)과
+  정합적으로 "참고 오버레이"로만.
+- **정직 caveat**: 4질병 전부 면역/염증(상관된 biology), held-out 아님, gold-in-candidates 소량 →
+  directional. "OT가 낫다"가 아니라 "상보적"까지가 데이터가 지지하는 최대. held-out은 complement를 실제
+  feature로 추진할 때만 필요(CDRS와 동일 규율).
 
 ---
 
@@ -188,14 +287,22 @@ python evals/cdrs_bench.py               # baseline 랭킹 vs OT genetic gold
 
 ## 9. 진행 체크리스트 (resumable state)
 
-- [ ] §6 셋업: 4개 MCP 중 최소 PubTator·BioMCP 등록 + G1(파일저장/집계 모드) 문서 확인
-- [ ] baseline 수치 고정(`run_eval`, `cdrs_bench`) → §7
-- [ ] Candidate A: G1 게이트 → (통과 시) G3 parity → 효율 → 판정
-- [ ] Candidate B: count 수치 일치 확인 → scan 집계 가능성 → 판정
-- [ ] Candidate C: OT ranked list → curated recall(순환 배제) → 보완 vs 대체 판정
-- [ ] Candidate D: 각하 확인(또는 B에 병합)
-- [ ] §5 rubric 표 완성 → adopt한 것 구현/자체 흡수, discard한 것 근거 기록
-- [ ] `dev_state.md`에 결론 반영(§3에 (F) 항목 추가), 이 파일은 "실행 완료"로 상태 갱신
+- [x] §6 셋업: G1 문서 게이트(4개 전부) + BioMCP 설치·실측 probe → §7-1/7-3. **standalone PubMed·
+      PubTator MCP는 문서상 G1 확정 탈락이라 등록 불요**; BioMCP만 설치·probe(→ 부적격 확정).
+- [x] baseline `run_eval` mean recall@20 = **0.92** 고정 → §7-2. (`cdrs_bench` spec_adj_artifact는 C와 함께)
+- [x] Candidate A: G1 fail(abstract in-context) + G3 fail(retraction/access 상실) → **discard** 확정.
+- [x] Candidate B: 정확 co/total count 미노출(PubTator MCP·BioMCP 공통) → **discard** 확정.
+- [x] Candidate C: OT-genetic 랭킹 vs 문헌 랭킹, gold=clinical(known-drug) → **reimplement(보완축) 판정**.
+      head-to-head wash(§7-5 Measurement A), 상보성은 실재(Measurement B: RA CD40/TYK2/IL2RA 등).
+- [x] Candidate D: 각하 확정(B 탈락으로 병합 대상 소멸).
+- [x] §5 rubric 표 완성(A·B·D·C 전부).
+- [x] `dev_state.md`에 결론 반영(§3 (F) 추가). **이 파일 상태: 실행 완료(2026-07-07).**
+
+**최종 결론(2026-07-07)**: fetch 계층(Phase 1·2)의 기성 MCP 대체는 **전부 부적격** — G1(token 안전성) +
+G3(retraction/access parity)가 A·B를 막고, BioMCP도 MCP=G1·CLI=G3에서 탈락. **현 스크립트 유지가 정답.**
+유일한 실이득 후보였던 OpenTargets(C)는 문헌 랭킹의 **대체가 아니라 상보축**(임상 타깃 cross-check)으로만
+가치 — 실제 feature화는 별도 제품결정. 즉 이 스킬의 부가가치(specificity 랭킹 + integrity 계층)는 기성
+MCP로 대체 불가임이 측정으로 확정됨.
 
 **원칙(CDRS에서 배운 것 재적용)**: ① 측정 하니스부터, 방법 키우기 전에. ② 단일 케이스로 "더 낫다" 금지 —
 held-out까지. ③ gold 순환 배제. ④ placeholder/미검증은 "미검증"으로 표기, 과대포장 금지.
