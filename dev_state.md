@@ -208,7 +208,17 @@ fetch 계층 대체는 전부 부적격, 현 스크립트 유지가 정답.**
 - [ ] 역방향(스킬을 MCP server로 노출) 설계는 `docs/mcp-server-design.md`에 보류 문서로만 — 1인
       사용이라 착수 안 함. 외부 수요 생기면 그 문서의 3-도구(rank_genes/fetch_literature/verify_citations)로 착수.
 
-## RESUME (2026-07-08, 세션 중단 대비)
+## e2e 완료 (2026-07-08)
+
+**OT overlay UX 실사용 e2e 통과** — Parkinson disease·systemic lupus erythematosus 2질병 전 구간
+(Phase 1 발굴+overlay → 확인 gate → Phase 2 수집 → Phase 3 subagent 요약 → Phase 4 조립+OT 콜아웃+verify).
+결과: 각 20 gene, verify_citations orphan 0, OT 콜아웃 15행씩 렌더(Parkinson BST1·PACRG·NR4A2 등 PD GWAS
+loci, lupus TREX1·IRF5·TNFAIP3·TLR7 등 SLE GWAS — 문헌 top-20이 놓친 유전 위험 타깃). **주의**: 콜아웃 게이팅
+(빈 결과→섹션 생략)은 이 2질병에선 안 걸림(둘 다 풍부) — 그 경로는 selftest로만 커버. e2e 중 잡은 fix 2건:
+① `ot_complement.py` ENSG-only(심볼 없는 Ensembl id) 필터, ② SKILL 템플릿 `?term=PMID+PMID+` → 숫자-only 문구
+(subagent가 리터럴 PMID를 URL에 넣던 버그). 산출 문서는 `output/<slug>/gene_literature_review.md`(gitignore).
+
+## (이전 RESUME — 참고)
 
 **OT overlay UX 기능 = 코드 완료·검증됨(미커밋, 디스크에 있음).** 변경: `scripts/ot_complement.py`(신규),
 `scripts/fetch_genes.py`(ot_scores.tsv 덤프), `SKILL.md`(always-on overlay + Phase 4 노출 A/B + Two entry

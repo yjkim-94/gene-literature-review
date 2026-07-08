@@ -40,6 +40,10 @@ def select_complement(ot_rows, final_rows, min_clinical, min_genetic, top_k):
         clinical = parse_score(row.get("ot_clinical", ""))
         if symbol in final_symbols:
             continue
+        if symbol.startswith("ENSG"):
+            # OpenTargets target with no approved gene symbol -- an unmapped
+            # Ensembl id is noise in a user-facing callout, so drop it.
+            continue
         if clinical > min_clinical or genetic >= min_genetic:
             selected.append({
                 "symbol": symbol,
@@ -111,6 +115,7 @@ def run_selftest():
             {"symbol": "TIEB", "ot_genetic": "0.700", "ot_clinical": ""},
             {"symbol": "EXTRA1", "ot_genetic": "0.690", "ot_clinical": ""},
             {"symbol": "EXTRA2", "ot_genetic": "0.680", "ot_clinical": ""},
+            {"symbol": "ENSG00000288636", "ot_genetic": "0.828", "ot_clinical": ""},
         ]
         final_rows = [
             {"symbol": "FINALHIGH", "ot_genetic": "0.900", "ot_clinical": "0.900"},
@@ -131,6 +136,7 @@ def run_selftest():
         assert "GENETIC" in symbols
         assert "LOW" not in symbols
         assert "CLINBOUND" not in symbols
+        assert not any(s.startswith("ENSG") for s in symbols)
         assert symbols.index("GENLOWCLIN") < symbols.index("CLINHIGH")
         assert symbols[:3] == ["SORTFIRST", "TIEA", "TIEB"]
 
