@@ -250,7 +250,7 @@ Summarize gene <SYMBOL> using ONLY the abstracts in that file, following this ex
 - **키워드와의 연관성**: 2~3문장. 각 주장 끝에 근거 PMID를 [PMID:xxxxxxxx] 형식으로 단다.
 - **주요 발견**: 불릿 2~4개. 각 불릿에 PMID 인용 필수.
 - **근거 논문**: 표 | PMID | 연도 | 접근수준 | 한 줄 요지 | — PMID 칸은 파일의 "url"을 써서 [xxxxxxxx](https://pubmed.ncbi.nlm.nih.gov/xxxxxxxx/) 클릭 링크로 만든다.
-- **근거 논문 전체 보기**: [PubMed에서 열기](https://pubmed.ncbi.nlm.nih.gov/?term=<PMID1>+<PMID2>+...) — 이 gene의 모든 PMID **숫자만** `+`로 이어붙인다(예: `?term=34106037+30194992`). `PMID` 글자는 URL에 넣지 말 것.
+- **근거 논문 전체 보기**: @@PMIDLINK@@   ← 이 리터럴 토큰을 그대로 출력한다(치환은 Phase 4의 add_pmid_links.py가 함).
 
 Rules:
 - Cite ONLY PMIDs that exist in the file. Never invent a PMID or a finding.
@@ -306,7 +306,10 @@ Render its rows verbatim into the 교차참조 table. **Gating — if `ot_scores
 
 After saving, **verify citations mechanically** before offering the doc as final:
 
+Fill the deterministic PubMed 전체보기 links (replaces @@PMIDLINK@@) before verifying:
+
 ```bash
+python scripts/add_pmid_links.py --review output/<slug>/gene_literature_review.md
 python scripts/verify_citations.py --review output/<slug>/gene_literature_review.md
 # exit 0 = every cited PMID exists in its gene's lit/*.json; exit 1 lists orphans.
 ```
