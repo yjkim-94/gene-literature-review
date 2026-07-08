@@ -1,5 +1,12 @@
 # Task-aligned gold design (2026-07-07)
 
+> **⚠ 폐기 (2026-07-08).** 이 설계에 따른 task-aligned recall eval은 폐기됨. GO-BP/Reactome/MSigDB gold는
+> **pathway membership**을 재는데 이 skill은 **literature prominence**를 뽑으므로 construct가 달라, 관측된
+> recall@30 0.14는 도구 실패가 아니라 gold-tool 불일치의 artifact다(gold를 늘려도 안 오름). OT literature
+> score도 co-occurrence 기반이라 tautology. codex 2-agent 3라운드 토론 결론: 어떤 gold든 그 숫자를 "recall"로
+> 부르면 안 됨. 필요 시엔 GWAS Catalog genetic-support overlap을 "literature-genetics gap" 지표로만 별도 report.
+> 근거·경과는 `dev_state.md`(2026-07-08 항목) 참조. 아래 내용은 역사 기록으로만 보존.
+
 ## 목적
 
 OpenTargets genetic gold는 stress test로 유지하되, main eval은 이 skill의 실제 목표인 "keyword 문헌 맥락에서 특이적으로 연구된 gene list"에 맞춘 gold로 별도 구성한다.
