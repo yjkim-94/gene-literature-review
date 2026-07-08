@@ -5,7 +5,7 @@
 # Author:      yjkim
 # Purpose:     OpenTargets genetic ground-truth loader for CDRS evaluation.
 # Description: Loads literature-independent OpenTargets target scores for one
-#              disease. Gold labels use genetic_association only; known_drug is
+#              disease. Gold labels use genetic_association only; clinical is
 #              kept as a secondary label. Raw scores are cached under
 #              evals/.gt_cache/ so thresholds can change without another fetch.
 # ============================================================================
@@ -137,7 +137,7 @@ def _build_raw(mondo_id):
 def load_ground_truth(mondo_id, genetic_threshold, refresh=False):
     """Return gold and secondary labels for an OpenTargets disease id.
 
-    The cache stores all positive genetic_association and known_drug scores.
+    The cache stores all positive genetic_association and clinical scores.
     Applying genetic_threshold after loading the cache lets the benchmark change
     the gold cutoff without another network request.
     """
@@ -175,7 +175,7 @@ if __name__ == "__main__":
     gt = load_ground_truth("MONDO_0004980", 0.5)
     print(
         f"AD: {gt['n_targets']} OT targets, {len(gt['gold'])} genetic gold "
-        f"(>=0.5), {len(gt['known_drug'])} known_drug"
+        f"(>=0.5), {len(gt['clinical'])} clinical"
     )
     if gt.get("error"):
         print(f"  error: {gt['error']}")

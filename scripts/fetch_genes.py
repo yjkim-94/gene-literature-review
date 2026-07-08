@@ -26,7 +26,8 @@ those synonyms collapses the PubTator parser (measured). Without --entity it
 falls back to free-text --keyword (novel terms with no MeSH, e.g. cuproptosis).
 
 Writes a tab-separated table (symbol, gene_id, name, co_papers, gene_papers,
-specificity, spec_adj, below_floor, artifact, evidence_pmids) to --out -- opens
+specificity, spec_adj, below_floor, artifact, evidence_pmids, ot_genetic,
+ot_clinical) to --out -- opens
 cleanly in Excel. evidence_pmids is ";"-joined. A sidecar <out>_all_scored.tsv holds
 every scored candidate BEFORE the min_co/min_specificity filter, so the cutoff
 can be set from the real spec_adj distribution instead of guessed.

@@ -1,5 +1,5 @@
 {
-  "note": "CDRS eval benchmark diseases. Tuning set (4) for weight tuning + instrument validation; add held-out entries to reach the method_dev 12-disease set. keyword+entity drive fetch_genes; mondo_id drives the OpenTargets genetic gold; genetic_threshold sets the gold cutoff on OT genetic_association score. None of these diseases is in scripts/data/panel_random.tsv (B_random), so the background can't leak a benchmark disease.",
+  "note": "CDRS eval benchmark diseases. Tuning set (4) for weight tuning + instrument validation; add held-out entries to reach the method_dev 12-disease set. keyword+entity drive fetch_genes; mondo_id drives the OpenTargets genetic gold; genetic_threshold sets the gold cutoff on OT genetic_association score. The panel/CDRS approach was removed; this remains as benchmark config.",
   "diseases": [
     {
       "keyword": "atopic dermatitis",

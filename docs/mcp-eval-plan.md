@@ -221,11 +221,11 @@ CLI 경로는 G3 parity 상실 — fetch 계층 대체 후보로 부적격.**
 사용자 결정: **gold = OT known-drug(임상) 타깃**(OT-genetic 랭킹과 준독립 → 순환 회피). "OT-genetic 랭킹 vs
 문헌 spec_adj_artifact 랭킹, 어느 쪽이 임상 검증 타깃을 더 잘 회수하나".
 
-- **버그 발견(§4-4 재현)**: `ground_truth.py`가 `datatypeScores.id == "known_drug"`로 파싱하는데,
+- **버그 발견(§4-4 재현, FIXED 2026-07-07: now uses `clinical`)**: 당시 `ground_truth.py`가 `datatypeScores.id == "known_drug"`로 파싱했는데,
   **OT의 실제 datatype id는 `clinical`**(라이브 쿼리로 확인: AD top 타깃 datatypes = genetic_association·
   literature·genetic_literature·rna_expression·animal_model·**clinical**). → `known_drug` 매칭이 한 번도
-  안 돼 `.gt_cache/` 전 질병 `known_drug={}`(0개)로 저장돼 있었음. **캐시 무효 + 파싱 수정 필요.**
-- 수정 방향: `ground_truth.py`에 `clinical` datatype 파싱 추가 + gt 캐시 refresh. gold = `clinical` score
+  안 돼 `.gt_cache/` 전 질병 `known_drug={}`(0개)로 저장돼 있었음. **수정 완료 기록.**
+- 수정 완료: `ground_truth.py`에 `clinical` datatype 파싱 추가 + gt 캐시 refresh. gold = `clinical` score
   ≥ threshold 타깃.
 - 데이터 가용성: 4 tuning 질병 scored TSV는 `output/atopic-dermatitis`만 캐시됨 → asthma·RA·psoriasis는
   `fetch_genes` 재실행 필요(PubTator, 순차).

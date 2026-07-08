@@ -1,6 +1,6 @@
 {
   "skill_name": "gene-literature-review",
-  "note": "Gene-list accuracy is the objectively verifiable core. This eval file is disease-only: every keyword has at least 30 OpenTargets genetic_association gold genes in evals/.gt_cache, and gold_genes stores the top 30 by score.",
+  "note": "Disease-only OpenTargets genetic_association gold stress test: gold_genes stores the top 30 by score from evals/.gt_cache. Low overlap is a literature-genetics gap indicator, not a skill-accuracy score.",
   "evals": [
     {
       "id": 1,

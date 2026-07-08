@@ -106,7 +106,7 @@ a transient PubTator failure and was skipped; NAFLD had no gold-in-candidates;
    (z_rel as main signal, cross-disease `hub_penalty`) do not help — hub_penalty
    is actively harmful — and the ~1,100 extra PubTator calls per keyword buy a
    worse result. Keep the `--rank cdrs` columns as an experimental/observe
-   artifact only.
+   artifact only. Superseded: `--rank cdrs` was later removed; see the banner / `dev_state.md`.
 2. **Adopt `artifact_weight` into the default ranking** — a symbol-regex demotion
    of Ig/TCR/HLA (IGHE etc.) applied on top of `spec_adj`. It is the best ranking
    measured, a strict no-downside improvement over the current one, and needs

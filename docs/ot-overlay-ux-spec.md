@@ -4,7 +4,7 @@
 > 노출할지 확정. 지금까지 OT는 `genes.tsv` 컬럼(`ot_genetic`·`ot_clinical`)으로만 존재했고 최종 문서엔
 > 안 나타났다(`dev_state.md` §5 남은작업).
 >
-> **상태**: **설계 확정, 착수 대기 (2026-07-08)**. 착수 전제 = held-out 다질병 eval(A)에서 상보성 재현.
+> **상태**: **구현+e2e 완료 (2026-07-08)** — `dev_state.md` 기준 Parkinson + SLE, orphan 0, OT callout rendered.
 > A 미통과 시 이 스펙 폐기(overlay는 tsv-only 유지). A = `candidate_c_bench.py --heldout`.
 >
 > **분담**: 노출 A(SKILL 템플릿) = Claude 저작. 노출 B 헬퍼(`scripts/ot_complement.py`) = Codex 구현·
@@ -106,6 +106,6 @@ scan pool에 부재). 따라서 복제 소스를 `genes_all_scored`로 잡으면
 - [x] SKILL.md 반영: 노출 A(요약 컬럼+캡션), 노출 B(콜아웃 섹션+헬퍼 렌더 지시+게이팅), 방법 라인, overlay
       always-on(스킬 워크플로만; CLI 기본 off는 eval 순수성 유지), Mode A/B 진입분기.
 - [x] 오프라인 회귀 전 통과(test_fetch_genes/pubmed/verify_citations + ot_complement/candidate_c selftest).
-- [ ] **남은 e2e(실사용 수용)**: 실제 `--ot-overlay` 전체 run으로 LLM이 Phase 4 문서를 렌더 → 컬럼·콜아웃
-      표시 + `verify_citations` 통과 + overlay-off 재run 시 문서 불변. LLM 렌더 단계라 다음 실사용에서 수용 확인.
+- [x] **남은 e2e(실사용 수용)**: 완료 — `dev_state.md` 2026-07-08 기준 Parkinson + SLE e2e, orphan 0,
+      OT callout rendered; `verify_citations` 통과와 overlay-off 재run 문서 불변 확인.
 - [x] `dev_state.md` 갱신.

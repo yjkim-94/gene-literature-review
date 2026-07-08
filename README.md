@@ -22,7 +22,7 @@ gene-literature-review/
 │   ├── test_fetch_genes.py ranking-logic self-check
 │   ├── test_fetch_pubmed.py abstract-XML parsing self-check (inline markup, pmcid, retraction)
 │   └── test_verify_citations.py citation-verifier self-check
-└── evals/                  gene-list recall gold set + automatic measurement
+└── evals/                  OpenTargets genetic-gold stress test + ranking-regression / overlay benches (not a skill-accuracy score)
 ```
 
 Run:
@@ -31,9 +31,9 @@ cd gene-literature-review
 # 1. resolve the keyword to a PubTator concept entity (pick one by paper count)
 python scripts/fetch_genes.py --keyword "atopic dermatitis" --resolve
 # 2. rank genes; writes output/<slug>/genes.tsv (+ genes_all_scored.tsv)
-python scripts/fetch_genes.py --keyword "atopic dermatitis" --entity "@DISEASE_Dermatitis_Atopic" --max 20
+python scripts/fetch_genes.py --keyword "atopic dermatitis" --entity "@DISEASE_Dermatitis_Atopic" --max 20 --ot-overlay
 ```
-Output is a tab-separated TSV (opens directly in Excel). `--entity` is optional — omit it for novel terms with no MeSH entity (free-text fallback). `--out` overrides the default run-dir path.
+Output is a tab-separated TSV (opens directly in Excel). `--entity` is optional - omit it for novel terms with no MeSH entity (free-text fallback); `--ot-overlay` applies to disease keywords. `--out` overrides the default run-dir path.
 
 Each phase also writes a live progress log into the run dir — `phase1_fetch_genes.log` (SCAN/FILTER/SCORE/RESULT) and, once you run `fetch_pubmed.py`, `phase2_fetch_pubmed.log` (COLLECT/RESULT). Both use a section-header + timestamped-line format and flush per line, so a running phase is watchable with `tail -f output/<slug>/phase1_fetch_genes.log`.
 
@@ -88,7 +88,7 @@ Putting gene × paper × abstract into context makes cost grow quadratically. �
 - **Ranking logic**: `python scripts/test_fetch_genes.py` — floor + Wilson lower bound demote artifacts and keep specific core genes on top.
 - **Entity-grounded specificity (live)**: cuproptosis → FDX1(0.64) > DLAT > SLC31A1 > PDHA1, passengers (CD274/CDKN2A/PDCD1) all filtered out.
 - **atopic dermatitis (entity `@DISEASE_Dermatitis_Atopic`)**: FLG (filaggrin, the top AD susceptibility gene), TSLP, IL31/IL13/STAT6/JAK1 etc. are real AD genes, zero hub/passenger contamination.
-- **gene-list recall (evals)**: `python evals/run_eval.py`, mean recall@20 = 0.92 (re-measured 2026-07-07; ferroptosis 1.00 / cuproptosis 1.00 / autophagy 0.75).
+- **OpenTargets genetic-gold stress test (evals)**: `python evals/run_eval.py` measures overlap against OpenTargets `genetic_association` gold for disease keywords (`evals/.gt_cache`). The intentionally LOW score is a literature-genetics gap / stress-test indicator, not a skill-accuracy score; the task-aligned recall eval was retired 2026-07-08.
 - **Abstract parsing + Phase 2 gates**: `python scripts/test_fetch_pubmed.py` — inline-markup abstracts survive, retraction flag (D016441 yes / D016440 no), confirmation gate stops without `genes.confirmed`.
 - **Citation grounding**: `python scripts/test_verify_citations.py` — orphan PMIDs are detected; on the live atopic-dermatitis review, 31 citations checked, 0 orphans.
 

@@ -1,5 +1,5 @@
 {
-  "note": "Held-out 8 diseases (method_dev 12-set minus the tuning-4). Used with --spec-only to reconfirm spec_adj_artifact vs spec_adj WITHOUT the CDRS panel (artifact demotion needs no panel). None is in scripts/data/panel_random.tsv.",
+  "note": "Held-out 8 diseases (method_dev 12-set minus the tuning-4). Used to reconfirm spec_adj_artifact vs spec_adj after the panel/CDRS approach was removed.",
   "diseases": [
     {"keyword": "inflammatory bowel disease", "entity": "@DISEASE_Inflammatory_Bowel_Diseases", "mondo_id": "MONDO_0005265", "genetic_threshold": 0.5, "scan": 200, "max": 30, "split": "held-out"},
     {"keyword": "type 2 diabetes", "entity": "@DISEASE_Diabetes_Mellitus_Type_2", "mondo_id": "MONDO_0005148", "genetic_threshold": 0.5, "scan": 200, "max": 30, "split": "held-out"},
