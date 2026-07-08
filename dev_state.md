@@ -202,9 +202,12 @@ fetch 계층 대체는 전부 부적격, 현 스크립트 유지가 정답.**
       확보. **헬퍼 구현·검증 완료**(`scripts/ot_complement.py` genetic-forward 복제 선정 + `fetch_genes --ot-overlay`가
       `ot_scores.tsv` 덤프). 남은 건 SKILL.md Phase 4 템플릿 통합(노출 A 요약컬럼 + 노출 B 콜아웃) + 실 overlay
       run e2e. 상세 `docs/ot-overlay-ux-spec.md`.
-- [ ] task-aligned main recall eval — GO-BP(QuickGO) gold **초안 실행 완료**(§5: 5 keyword×30 gold, scan 500,
-      mean recall@30 0.14, 병목=candidate discovery/scan). 남은 건 Reactome/MSigDB/curated review로 gold 확장 +
-      scan 단계 개선. OT genetic은 stress test로만 유지.
+- [x] ~~task-aligned main recall eval~~ **폐기 (2026-07-08)**. GO-BP(QuickGO) recall@30 0.14는 gold-tool
+      construct MISMATCH를 잰 것 — pathway membership ≠ literature prominence라, gold를 늘려도 안 오름.
+      OT literature score도 co-occurrence 기반이라 tautology. codex 2-agent 3라운드 토론 결론: 어떤 gold든
+      그 숫자를 "recall"로 부르면 안 됨(서로 다른 construct). 결정: **recall eval 자체를 폐기**. 필요 시엔
+      genetic-support overlap(GWAS Catalog `findByDiseaseTrait` 또는 기존 OT genetic, 무료·스크립트)을 "recall"이
+      아니라 "literature-genetics gap" 지표로만 별도 report — 하지만 현재 착수 안 함.
 - [ ] 역방향(스킬을 MCP server로 노출) 설계는 `docs/mcp-server-design.md`에 보류 문서로만 — 1인
       사용이라 착수 안 함. 외부 수요 생기면 그 문서의 3-도구(rank_genes/fetch_literature/verify_citations)로 착수.
 

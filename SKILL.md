@@ -247,14 +247,14 @@ Read output/<slug>/lit/<SYMBOL>.json only. Do not fetch anything.
 Summarize gene <SYMBOL> using ONLY the abstracts in that file, following this exact template:
 
 ### <SYMBOL> — <full gene name>
-- **키워드와의 연관성**: 2~3문장. 각 주장 끝에 근거 PMID를 [PMID:xxxxxxxx] 형식으로 단다.
-- **주요 발견**: 불릿 2~4개. 각 불릿에 PMID 인용 필수.
-- **근거 논문**: 표 | PMID | 연도 | 접근수준 | 한 줄 요지 | — PMID 칸은 파일의 "url"을 써서 [xxxxxxxx](https://pubmed.ncbi.nlm.nih.gov/xxxxxxxx/) 클릭 링크로 만든다.
-- **근거 논문 전체 보기**: @@PMIDLINK@@   ← 이 리터럴 토큰을 그대로 출력한다(치환은 Phase 4의 add_pmid_links.py가 함).
+- **키워드와의 연관성**: 2-3 sentences. End each claim with its evidence PMID in [PMID:xxxxxxxx] format.
+- **주요 발견**: 2-4 bullets. Every bullet must cite a PMID.
+- **근거 논문**: table | PMID | 연도 | 접근수준 | 한 줄 요지 | — for the PMID cell, use the file's "url" to build a clickable link [xxxxxxxx](https://pubmed.ncbi.nlm.nih.gov/xxxxxxxx/).
+- **근거 논문 전체 보기**: @@PMIDLINK@@   ← output this literal token verbatim (Phase 4's add_pmid_links.py performs the substitution).
 
 Rules:
 - Cite ONLY PMIDs that exist in the file. Never invent a PMID or a finding.
-- If a paper's "retracted" is true, mark its 접근수준 칸에 ⚠철회 and do NOT use it in 연관성/주요 발견 (drop it as evidence).
+- If a paper's "retracted" is true, mark ⚠철회 in its 접근수준 cell and do NOT use it in 연관성/주요 발견 (drop it as evidence).
 - If a claim is from an abstract-only paper, that is fine — the access column records it.
 - If the file has no papers, write "관련 문헌 없음" and stop.
 Return only the filled template, nothing else.
