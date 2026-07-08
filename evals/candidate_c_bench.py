@@ -224,12 +224,17 @@ def render_summary(evaluations, errors=None):
     else:
         lines.append("No disease had clinical gold-in-candidates; no mean verdict available.")
 
+    splits = sorted({
+        result["disease"].get("split", "unknown")
+        for result in evaluations
+        if result.get("disease")
+    })
     lines.extend(
         [
             "",
             "## Caveat",
             "",
-            "- Tuning set only.",
+            f"- Split evaluated: {', '.join(splits) if splits else 'unknown'}.",
             "- Clinical gold is tiny for some diseases.",
             "- Directional benchmark only; not a significance test.",
         ]

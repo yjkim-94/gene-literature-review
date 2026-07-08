@@ -366,6 +366,19 @@ def annotate_ot(rows, scores):
         row["ot_clinical"] = round(clinical, 3) if clinical else ""
 
 
+def write_ot_scores(path, scores):
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f, delimiter="\t")
+        w.writerow(["symbol", "ot_genetic", "ot_clinical"])
+        for symbol in sorted(scores):
+            score = scores[symbol]
+            w.writerow([
+                symbol,
+                round(score.get("genetic", 0.0), 3),
+                round(score.get("clinical", 0.0), 3),
+            ])
+
+
 def write_tsv(path, genes):
     # Output schema is fixed so downstream steps can rely on TSV_COLS exactly.
     with open(path, "w", encoding="utf-8", newline="") as f:
@@ -459,6 +472,9 @@ def main():
                 ot_scores = opentargets.fetch_target_scores(efo_id)
                 annotate_ot(genes, ot_scores)
                 annotate_ot(all_scored, ot_scores)
+                ot_path = os.path.join(os.path.dirname(out) or ".", "ot_scores.tsv")
+                write_ot_scores(ot_path, ot_scores)
+                log(f"OT overlay: dumped {len(ot_scores)} OT targets -> {ot_path}")
         except Exception as error:
             log(f"WARNING: OT overlay failed: {error} -- leaving OT columns empty")
 

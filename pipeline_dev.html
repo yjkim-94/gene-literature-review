@@ -1,0 +1,314 @@
+<title>gene-literature-review — 스크립트 오케스트레이션</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --ink:#F6F7FB; --ink2:#FFFFFF; --panel:#FFFFFF; --panel2:#EEF0F5;
+    --line:#E6E9F0; --line2:#DEE2EC;
+    --sig:#4E5BDC; --sig-dim:#7C87E9; --sig-glow:rgba(78,91,220,.22);
+    --warn:#F0603E; --warn-dim:#F9A88F; --warn-glow:rgba(240,96,62,.22);
+    --amber:#E1920B; --amber-dim:#F0C471;
+    --txt:#1E2130; --mut:#565D7E; --mut2:#7A8199;
+    --mono:'IBM Plex Mono',ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --sans:'Pretendard Variable',Pretendard,ui-sans-serif,system-ui,-apple-system,"Segoe UI","Malgun Gothic",sans-serif;
+    --shadow-card:0 4px 16px rgba(30,33,48,.06);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:
+      radial-gradient(1200px 600px at 80% -10%, #EDEFFE 0%, transparent 60%),
+      radial-gradient(900px 500px at 0% 110%, #FDECE6 0%, transparent 55%),
+      var(--ink);
+    color:var(--txt); font-family:var(--sans);
+    -webkit-font-smoothing:antialiased; line-height:1.5; min-height:100vh;
+  }
+  .wrap{max-width:1160px; margin:0 auto; padding:28px 22px 40px}
+
+  header{display:flex; flex-wrap:wrap; align-items:baseline; gap:8px 16px; border-bottom:1px solid var(--line); padding-bottom:18px}
+  .brand{font-family:var(--mono); font-size:13px; letter-spacing:.02em; color:var(--sig); display:flex; align-items:center; gap:9px}
+  .brand .dot{width:8px;height:8px;border-radius:50%;background:var(--sig);box-shadow:0 0 12px var(--sig-glow);animation:pulse 2.4s ease-in-out infinite}
+  @keyframes pulse{50%{opacity:.35}}
+  h1{font-size:clamp(23px,4vw,36px); line-height:1.1; margin:10px 0 0; font-weight:760; letter-spacing:-.02em; flex-basis:100%}
+  h1 .m{font-family:var(--mono); font-weight:600; color:var(--sig)}
+  .thesis{flex-basis:100%; color:var(--mut); max-width:70ch; margin-top:8px; font-size:14.5px}
+  .thesis b{color:var(--txt); font-weight:600}
+
+  /* legend */
+  .legend{display:flex; flex-wrap:wrap; gap:8px 16px; margin:18px 0 6px; font-size:12px; color:var(--mut); font-family:var(--mono)}
+  .legend .lg{display:flex; align-items:center; gap:7px}
+  .swatch{width:22px; height:15px; border-radius:4px; border:1px solid var(--line2); flex:none}
+  .swatch.api{background:rgba(225,146,11,.12); border-color:var(--amber-dim)}
+  .swatch.script{background:var(--panel); border-color:var(--sig-dim); box-shadow:0 0 0 1px rgba(78,91,220,.06) inset}
+  .swatch.file{background:var(--panel2); border-color:var(--line2)}
+  .swatch.gate{background:rgba(240,96,62,.10); border-color:var(--warn-dim)}
+  .swatch.llm{background:repeating-linear-gradient(135deg,rgba(78,91,220,.09),rgba(78,91,220,.09) 4px,transparent 4px,transparent 8px); border-color:var(--sig-dim)}
+
+  /* stage */
+  .stage{position:relative; border:1px solid var(--line); border-radius:16px;
+    background:linear-gradient(180deg,var(--ink2),var(--ink)); margin-top:12px; padding:18px; overflow-x:auto; box-shadow:var(--shadow-card)}
+  .graph{position:relative; min-width:1000px}
+  svg.edges{position:absolute; inset:0; width:100%; height:100%; pointer-events:none; overflow:visible}
+  .edges path{fill:none; stroke:var(--line2); stroke-width:2; opacity:.35; transition:opacity .4s ease, stroke .4s ease}
+  .edges path.lit{opacity:.9; stroke:var(--sig-dim)}
+  .edges path.flow{stroke:var(--sig); stroke-dasharray:5 7; animation:march 1s linear infinite}
+  .edges path.mech{stroke-dasharray:2 5}
+  .edges path.mech.lit{stroke:var(--warn)}
+  @keyframes march{to{stroke-dashoffset:-24}}
+
+  /* phase columns */
+  .cols{position:relative; display:grid; grid-template-columns:repeat(5,1fr); gap:14px; z-index:1}
+  .col{display:flex; flex-direction:column; gap:0}
+  .col .cap{font-family:var(--mono); font-size:11px; letter-spacing:.04em; color:var(--mut); text-transform:uppercase; padding-bottom:8px; border-bottom:2px solid var(--line); margin-bottom:16px; display:flex; align-items:center; gap:7px; transition:color .3s, border-color .3s}
+  .col.active .cap{color:var(--sig); border-color:var(--sig-dim)}
+  .col.active .cap::before{content:""; width:7px; height:7px; border-radius:50%; background:var(--sig); box-shadow:0 0 8px var(--sig-glow)}
+  .nodes{display:flex; flex-direction:column; gap:26px}
+
+  /* node */
+  .node{border:1px solid var(--line2); border-radius:10px; padding:10px 11px; background:var(--panel); box-shadow:var(--shadow-card);
+    opacity:.4; filter:saturate(.4); transition:opacity .45s ease, filter .45s ease, transform .45s ease, box-shadow .3s; position:relative}
+  .node.lit{opacity:1; filter:none}
+  .node.active{transform:translateY(-2px); box-shadow:0 8px 22px rgba(78,91,220,.16)}
+  .node .ty{font-family:var(--mono); font-size:9.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--mut2)}
+  .node .nm{font-family:var(--mono); font-size:12.5px; color:var(--txt); margin-top:3px; word-break:break-word}
+  .node .sub{font-size:11px; color:var(--mut); margin-top:4px; line-height:1.35}
+  .node.script{border-color:var(--sig-dim)}
+  .node.script .nm{color:var(--sig)}
+  .node.script.active{animation:glow 1.6s ease-in-out infinite}
+  @keyframes glow{50%{box-shadow:0 8px 26px rgba(78,91,220,.28)}}
+  .node.api{border-color:var(--amber-dim); background:rgba(225,146,11,.05)}
+  .node.api .ty{color:#B5760A}
+  .node.file{background:var(--panel2)}
+  .node.file .nm{color:var(--mut)}
+  .node.file.lit .nm{color:var(--txt)}
+  .node.file::before{content:""; position:absolute; top:9px; right:9px; width:11px; height:13px; border:1.5px solid var(--line2); border-radius:2px}
+  .node.file.lit::before{border-color:var(--sig-dim)}
+  .node.gate{border-color:var(--warn-dim); background:rgba(240,96,62,.05)}
+  .node.gate .ty{color:#B93D23}
+  .node.gate .nm{color:#B93D23}
+  .node.llm{border-style:dashed; border-color:var(--sig-dim); background:repeating-linear-gradient(135deg,rgba(78,91,220,.04),rgba(78,91,220,.04) 5px,transparent 5px,transparent 10px)}
+  .node .badge{position:absolute; top:-8px; left:10px; font-family:var(--mono); font-size:9px; padding:1px 6px; border-radius:6px; background:var(--warn); color:#fff; letter-spacing:.03em}
+  .node .badge.safe{background:var(--sig)}
+
+  /* narration */
+  .narr{margin-top:16px; border:1px solid var(--line); border-radius:12px; padding:15px 17px; background:var(--panel); box-shadow:var(--shadow-card); min-height:96px}
+  .narr .step{font-family:var(--mono); font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--sig)}
+  .narr h3{margin:5px 0 7px; font-size:16px; font-weight:680; letter-spacing:-.01em}
+  .narr p{margin:0; color:var(--mut); font-size:13.5px; max-width:82ch}
+  .narr p b{color:var(--txt); font-weight:600}
+  .narr .inv{margin-top:9px; font-size:12.5px; color:var(--sig); display:flex; gap:8px; align-items:baseline}
+  .narr .inv b{font-family:var(--mono); flex:none}
+  .narr .inv.warnc{color:#B93D23}
+
+  /* controls */
+  .controls{display:flex; align-items:center; gap:10px; margin-top:16px}
+  .controls button{font:inherit; font-size:13px; color:var(--txt); background:var(--panel); border:1px solid var(--line2); border-radius:8px; padding:8px 15px; cursor:pointer; display:flex; align-items:center; gap:7px}
+  .controls button:hover{border-color:var(--sig-dim)}
+  .controls button:focus-visible{outline:2px solid var(--sig); outline-offset:2px}
+  .controls button.primary{background:var(--sig); color:#fff; border-color:var(--sig)}
+  .controls .spacer{flex:1}
+  .controls .cnt{font-family:var(--mono); font-size:12px; color:var(--mut)}
+  .foot{margin-top:22px; color:var(--mut); font-size:12px; font-family:var(--mono)}
+  .foot b{color:var(--txt)}
+
+  @media(max-width:680px){
+    .narr p{font-size:13px}
+  }
+  @media(prefers-reduced-motion:reduce){
+    *{animation-duration:.001s!important; transition-duration:.05s!important}
+  }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="brand"><span class="dot"></span>gene-literature-review · dev</div>
+    <h1>스크립트가 <span class="m">어떻게 맞물려</span> 도는가</h1>
+    <p class="thesis">키워드 → 유전자 목록 → 문헌 요약까지, <b>어느 스크립트가 무엇을 읽고 무엇을 쓰는지</b>를 단계별로 점등한다. 파란 노드는 <b>스크립트</b>, 회색은 <b>파일</b>, 주황은 <b>외부 API</b>, 빨강은 <b>사람 확인 게이트</b>, 빗금은 <b>LLM</b>. ▶를 눌러 데이터가 흐르는 순서를 따라가 보라.</p>
+  </header>
+
+  <div class="legend">
+    <div class="lg"><span class="swatch api"></span>외부 API</div>
+    <div class="lg"><span class="swatch script"></span>스크립트</div>
+    <div class="lg"><span class="swatch file"></span>산출 파일</div>
+    <div class="lg"><span class="swatch gate"></span>사람 게이트 (fail-closed)</div>
+    <div class="lg"><span class="swatch llm"></span>LLM</div>
+  </div>
+
+  <div class="stage">
+    <div class="graph" id="graph">
+      <svg class="edges" id="edges"></svg>
+      <div class="cols" id="cols">
+
+        <div class="col" data-phase="0">
+          <div class="cap">Phase 1 · 발굴</div>
+          <div class="nodes">
+            <div class="node api" id="n_kw" data-phase="0"><div class="ty">input</div><div class="nm">키워드 / --entity</div><div class="sub">질병·과정 단어 하나</div></div>
+            <div class="node api" id="n_pubtator" data-phase="0"><div class="ty">api · PubTator3</div><div class="nm">entity NER + co-count</div><div class="sub">글자 아닌 '뜻'으로 유전자 매칭</div></div>
+            <div class="node api" id="n_otapi" data-phase="0"><div class="ty">api · OpenTargets</div><div class="nm">GraphQL target scores</div><div class="sub">--ot-overlay 시에만</div></div>
+            <div class="node script" id="n_fetchgenes" data-phase="0"><div class="ty">script</div><div class="nm">fetch_genes.py</div><div class="sub">특이도(spec_adj) 순위 · opentargets.py 호출</div></div>
+            <div class="node file" id="n_genes" data-phase="0"><div class="ty">file</div><div class="nm">genes.tsv</div><div class="sub">순위 목록 (top-N)</div></div>
+            <div class="node file" id="n_allscored" data-phase="0"><div class="ty">file</div><div class="nm">genes_all_scored.tsv</div><div class="sub">필터 전 전량</div></div>
+            <div class="node file" id="n_otscores" data-phase="0"><div class="ty">file</div><div class="nm">ot_scores.tsv</div><div class="sub">OT 전체 타깃</div></div>
+          </div>
+        </div>
+
+        <div class="col" data-phase="1">
+          <div class="cap">확인 게이트</div>
+          <div class="nodes">
+            <div class="node gate" id="n_confirm" data-phase="1"><span class="badge">STOP</span><div class="ty">human · fail-closed</div><div class="nm">genes.confirmed</div><div class="sub">사람이 목록 승인(OK) 전엔 Phase 2 정지</div></div>
+          </div>
+        </div>
+
+        <div class="col" data-phase="2">
+          <div class="cap">Phase 2 · 수집</div>
+          <div class="nodes">
+            <div class="node api" id="n_pubmed" data-phase="2"><div class="ty">api · NCBI</div><div class="nm">PubMed E-utilities</div><div class="sub">abstract · 철회 · PMC 링크</div></div>
+            <div class="node script" id="n_fetchpubmed" data-phase="2"><div class="ty">script</div><div class="nm">fetch_pubmed.py</div><div class="sub">gene당 상위 N편 수집</div></div>
+            <div class="node file" id="n_lit" data-phase="2"><span class="badge safe">파일로</span><div class="ty">file</div><div class="nm">lit/&lt;SYMBOL&gt;.json</div><div class="sub">abstract 원문은 context 아닌 파일에</div></div>
+          </div>
+        </div>
+
+        <div class="col" data-phase="3">
+          <div class="cap">Phase 3 · 요약</div>
+          <div class="nodes">
+            <div class="node llm" id="n_llm3" data-phase="3"><div class="ty">llm · subagent fan-out</div><div class="nm">gene별 요약</div><div class="sub">각 에이전트가 파일을 읽어 abstract 토큰 소모</div></div>
+            <div class="node file" id="n_summaries" data-phase="3"><div class="ty">intermediate</div><div class="nm">per-gene 요약</div><div class="sub">PMID 인용 강제</div></div>
+          </div>
+        </div>
+
+        <div class="col" data-phase="4">
+          <div class="cap">Phase 4 · 통합·검증</div>
+          <div class="nodes">
+            <div class="node script" id="n_otcomp" data-phase="4"><div class="ty">script</div><div class="nm">ot_complement.py</div><div class="sub">문헌이 놓친 OT 타깃 콜아웃(결정적)</div></div>
+            <div class="node llm" id="n_assemble" data-phase="4"><div class="ty">llm</div><div class="nm">문서 조립</div><div class="sub">요약 + OT 교차참조</div></div>
+            <div class="node file" id="n_doc" data-phase="4"><div class="ty">output</div><div class="nm">gene_literature_review.md</div><div class="sub">최종 문서</div></div>
+            <div class="node script" id="n_verify" data-phase="4"><span class="badge safe">기계 대조</span><div class="ty">script</div><div class="nm">verify_citations.py</div><div class="sub">인용 PMID가 파일에 실재? orphan 0</div></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="narr" id="narr"></div>
+
+    <div class="controls">
+      <button id="prev">◀ 이전</button>
+      <button id="play" class="primary">▶ 재생</button>
+      <button id="next">다음 ▶</button>
+      <span class="spacer"></span>
+      <span class="cnt" id="cnt"></span>
+    </div>
+  </div>
+
+  <p class="foot">두 방어가 전 흐름의 이유다 — <b>토큰 안전성</b>(abstract는 파일로만, context에 안 올림)과 <b>무결성</b>(사람 게이트 fail-closed · verify_citations 기계 대조). runlog.py는 Phase 1·2 공용 로깅(생략).</p>
+</div>
+
+<script>
+// Edge list: [from-id, to-id, activate-at-phase, kind]. kind: '' normal, 'mech' mechanical check.
+const EDGES = [
+  ["n_kw","n_fetchgenes",0,""],
+  ["n_pubtator","n_fetchgenes",0,""],
+  ["n_otapi","n_fetchgenes",0,""],
+  ["n_fetchgenes","n_genes",0,""],
+  ["n_fetchgenes","n_allscored",0,""],
+  ["n_fetchgenes","n_otscores",0,""],
+  ["n_genes","n_confirm",1,""],
+  ["n_confirm","n_fetchpubmed",2,""],
+  ["n_genes","n_fetchpubmed",2,""],
+  ["n_pubmed","n_fetchpubmed",2,""],
+  ["n_fetchpubmed","n_lit",2,""],
+  ["n_lit","n_llm3",3,""],
+  ["n_llm3","n_summaries",3,""],
+  ["n_summaries","n_assemble",4,""],
+  ["n_otscores","n_otcomp",4,""],
+  ["n_genes","n_otcomp",4,""],
+  ["n_otcomp","n_assemble",4,""],
+  ["n_assemble","n_doc",4,""],
+  ["n_doc","n_verify",4,""],
+  ["n_lit","n_verify",4,"mech"],
+];
+
+const STEPS = [
+  {t:"Phase 1 · 유전자 발굴",
+   p:"<b>fetch_genes.py</b>가 PubTator3로 키워드 논문에서 NER 태깅된 유전자 후보를 모으고, entity 기반 <b>동시출현 특이도(spec_adj)</b>로 순위를 매긴다. <code>--ot-overlay</code>면 <b>opentargets.py</b>가 OT 유전/임상 점수까지 붙인다. 산출: genes.tsv(순위)·genes_all_scored.tsv(전량)·ot_scores.tsv(OT 전체).",
+   inv:["랭킹은 순수 문헌 특이도","OT는 표시용 — 순위 미반영"]},
+  {t:"확인 게이트 · fail-closed",
+   p:"Phase 2는 <b>genes.confirmed</b>에 사람이 OK를 쓰기 전까지 스크립트 레벨에서 <b>정지</b>한다. 미검토 목록이 자동으로 문헌 수집까지 흘러가는 걸 코드로 막는다 — default 상태가 '정지'.",
+   inv:["지시가 아니라 코드로 강제한 게이트"], warn:true},
+  {t:"Phase 2 · 문헌 수집",
+   p:"<b>fetch_pubmed.py</b>가 확정된 gene마다 PubMed E-utilities에서 상위 N편의 abstract를 받아 <b>lit/&lt;SYMBOL&gt;.json 파일로 저장</b>한다. 철회 논문 플래그·PMC 접근수준·PubMed 링크가 함께 기록된다.",
+   inv:["abstract 원문은 context가 아니라 파일로 — 토큰 폭발 차단"]},
+  {t:"Phase 3 · gene별 요약",
+   p:"gene가 10개 이상이면 <b>서브에이전트로 fan-out</b> — 각 에이전트가 자기 배치의 lit 파일만 읽어 요약하고, abstract 토큰을 <b>서브 컨텍스트에서 소모</b>한 뒤 요약만 반환한다. 모든 주장에 실재 PMID 인용을 강제한다.",
+   inv:["gene×논문 토큰이 메인 context로 안 올라옴"]},
+  {t:"Phase 4 · 통합·검증",
+   p:"요약을 최종 문서로 조립한다. <b>ot_complement.py</b>가 문헌 상위 목록이 놓친 OT 타깃을 <b>결정적으로</b> 골라 교차참조 콜아웃을 만든다(LLM이 손으로 고르지 않음). 마지막에 <b>verify_citations.py</b>가 문서의 모든 인용 PMID가 lit 파일에 실재하는지 <b>글자 대조</b>한다 — orphan이 있으면 exit 1.",
+   inv:["검증은 모델 없는 문자 비교 — 지어낼 여지 0"]},
+];
+
+const cols = [...document.querySelectorAll(".col")];
+const nodes = [...document.querySelectorAll(".node")];
+const svg = document.getElementById("edges");
+const graph = document.getElementById("graph");
+const narr = document.getElementById("narr");
+const cnt = document.getElementById("cnt");
+let cur = 0, timer = null;
+
+// Build edge paths once (as SVG <path>), positions computed on layout.
+const paths = EDGES.map(([from,to,phase,kind])=>{
+  const el = document.createElementNS("http://www.w3.org/2000/svg","path");
+  el.dataset.phase = phase; el.dataset.from = from; el.dataset.to = to;
+  if(kind) el.classList.add(kind);
+  svg.appendChild(el); return el;
+});
+
+function place(){
+  const gb = graph.getBoundingClientRect();
+  for(const el of paths){
+    const a = document.getElementById(el.dataset.from).getBoundingClientRect();
+    const b = document.getElementById(el.dataset.to).getBoundingClientRect();
+    const x1 = a.right - gb.left, y1 = a.top - gb.top + a.height/2;
+    const x2 = b.left - gb.left,  y2 = b.top - gb.top + b.height/2;
+    const dx = Math.max(28,(x2-x1)*0.5);
+    el.setAttribute("d",`M ${x1} ${y1} C ${x1+dx} ${y1}, ${x2-dx} ${y2}, ${x2} ${y2}`);
+  }
+}
+
+function render(){
+  cols.forEach(c=> c.classList.toggle("active", +c.dataset.phase===cur));
+  nodes.forEach(n=>{
+    const ph = +n.dataset.phase;
+    n.classList.toggle("lit", ph<=cur);
+    n.classList.toggle("active", ph===cur);
+  });
+  paths.forEach(el=>{
+    const ph = +el.dataset.phase;
+    el.classList.toggle("lit", ph<=cur);
+    el.classList.toggle("flow", ph===cur && !el.classList.contains("mech"));
+  });
+  const s = STEPS[cur];
+  narr.innerHTML =
+    `<div class="step">STEP ${cur+1} / ${STEPS.length}</div>`+
+    `<h3>${s.t}</h3><p>${s.p}</p>`+
+    s.inv.map(i=>`<div class="inv${s.warn?" warnc":""}"><b>${s.warn?"✋":"✓"}</b><span>${i}</span></div>`).join("");
+  cnt.textContent = `${cur+1} / ${STEPS.length}`;
+}
+
+function go(i){ cur = (i+STEPS.length)%STEPS.length; place(); render(); }
+function stop(){ if(timer){clearInterval(timer); timer=null; document.getElementById("play").textContent="▶ 재생";} }
+
+document.getElementById("next").onclick=()=>{stop(); go(cur+1);};
+document.getElementById("prev").onclick=()=>{stop(); go(cur-1);};
+document.getElementById("play").onclick=()=>{
+  if(timer){ stop(); return; }
+  document.getElementById("play").textContent="❚❚ 멈춤";
+  if(cur===STEPS.length-1) go(0);
+  timer = setInterval(()=>{ if(cur===STEPS.length-1){stop(); return;} go(cur+1); }, 2600);
+};
+
+// Recompute edge geometry after fonts/layout settle and on resize.
+addEventListener("resize", place);
+if(document.fonts && document.fonts.ready) document.fonts.ready.then(place);
+requestAnimationFrame(()=>{ place(); render(); });
+</script>

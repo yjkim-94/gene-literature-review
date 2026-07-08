@@ -193,15 +193,38 @@ fetch 계층 대체는 전부 부적격, 현 스크립트 유지가 정답.**
   miss 대부분은 여전히 `pool-miss` → ranking보다 candidate discovery/scan 단계가 병목.
 
 **남은 작업**:
-- [ ] `full-text` 라벨은 정직화됨(§3C③)이나 PMC 전문을 실제로 당겨 읽는 경로는 미구현 — Phase 3는 abstract
-      요약이 기본(SKILL 명시).
 - [ ] 인용은 `verify_citations.py`로 기계 가드(§3C②)되나, 요약 prose 품질·대규모 gene(10+) subagent
       fan-out 경로는 여전히 LLM 실행 의존 + 실검증 미완.
 - [ ] ⚠철회 경로는 unit test(D016441)로만 커버 — 철회 논문이 실제 포함되는 키워드로 end-to-end 실검증 미완.
-- [ ] OT overlay는 tuning 4질병 기준 보완가치 확인 — held-out 다질병 실검증 및 실제 표시/활용 UX는 미완.
-- [ ] task-aligned main recall eval은 아직 부족 — `docs/task-aligned-gold-design.md` 기준으로 GO/Reactome/MSigDB/
-      curated review gold를 구성해야 함. OT genetic은 stress test로만 유지.
-- [x] fetch 계층 MCP 대체 검토 → **전부 부적격**(§3D). OT는 참고 오버레이로만 채택(§3E).
+- [ ] OT overlay: **held-out 8질병(면역 밖 암·신경·대사·호흡 포함) 실검증 완료** — Measurement A는 여전히
+      wash(대체 아님), **Measurement B 상보성은 7/8 질병에서 재현**(breast cancer CHEK2/KRAS/PIK3CA,
+      melanoma CDK4/PARP1, IBD JAK2/TYK2/ITGA4 등; lupus만 empty). 면역 특유 아님 확정 → 표시 UX 착수 근거
+      확보. **헬퍼 구현·검증 완료**(`scripts/ot_complement.py` genetic-forward 복제 선정 + `fetch_genes --ot-overlay`가
+      `ot_scores.tsv` 덤프). 남은 건 SKILL.md Phase 4 템플릿 통합(노출 A 요약컬럼 + 노출 B 콜아웃) + 실 overlay
+      run e2e. 상세 `docs/ot-overlay-ux-spec.md`.
+- [ ] task-aligned main recall eval — GO-BP(QuickGO) gold **초안 실행 완료**(§5: 5 keyword×30 gold, scan 500,
+      mean recall@30 0.14, 병목=candidate discovery/scan). 남은 건 Reactome/MSigDB/curated review로 gold 확장 +
+      scan 단계 개선. OT genetic은 stress test로만 유지.
+- [ ] 역방향(스킬을 MCP server로 노출) 설계는 `docs/mcp-server-design.md`에 보류 문서로만 — 1인
+      사용이라 착수 안 함. 외부 수요 생기면 그 문서의 3-도구(rank_genes/fetch_literature/verify_citations)로 착수.
+
+## RESUME (2026-07-08, 세션 중단 대비)
+
+**OT overlay UX 기능 = 코드 완료·검증됨(미커밋, 디스크에 있음).** 변경: `scripts/ot_complement.py`(신규),
+`scripts/fetch_genes.py`(ot_scores.tsv 덤프), `SKILL.md`(always-on overlay + Phase 4 노출 A/B + Two entry
+modes), `evals/candidate_c_bench.py`(caveat 문구 fix), `docs/ot-overlay-ux-spec.md`·`docs/mcp-server-design.md`
+(신규), `pipeline_dev.html`(신규, 스크립트 오케스트레이션 그래프 시각화). 오프라인 회귀·selftest 전 통과.
+
+**진행 중인 e2e(실사용 검증) — Parkinson + lupus 2질병:**
+- Phase 1·2 완료(`output/parkinson-disease/`, `output/systemic-lupus-erythematosus/` — gitignore).
+  genes.tsv(각 20 gene, OT 컬럼 채워짐)·ot_scores.tsv·lit/*.json(각 98/100편)·genes.confirmed=OK 존재.
+- Phase 3 진행: subagent 4개가 `output/<slug>/summaries_b1.md`·`summaries_b2.md`를 쓰는 중(멈춰도 파일 잔존).
+- **남은 Phase 4(재개 지점)**: 각 질병마다 ① `summaries_b1+b2.md` 병합해 `gene_literature_review.md` 조립
+  (헤더 + 요약 테이블[OT유전·OT임상 컬럼 포함] + `## OpenTargets 교차참조` 콜아웃 + 방법), ② 콜아웃은
+  `python scripts/ot_complement.py --ot-scores output/<slug>/ot_scores.tsv --final output/<slug>/genes.tsv`
+  출력 렌더(Parkinson=생성 예상, lupus=held-out에서 ot_only empty였으니 게이팅으로 섹션 생략되는지 확인),
+  ③ `python scripts/verify_citations.py --review output/<slug>/gene_literature_review.md`로 orphan 0 확인.
+- e2e 통과 후: repo → user skill(`~/.claude/skills/gene-literature-review/`) 동기화 + 커밋(원격 push).
 
 **다음 에이전트가 먼저 읽을 것**: `docs/cdrs-eval-findings.md`(왜 CDRS를 접었는가), 이 파일, 그리고
 Phase 1 랭킹을 건드린다면 `scripts/test_fetch_genes.py`(회귀 가드).

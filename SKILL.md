@@ -7,6 +7,10 @@ description: Use when a user gives a biological keyword (disease, pathway, pheno
 
 Given a keyword (or a user-supplied gene list), proceed in order: **① related gene list → ② collect each gene's PubMed literature → ③ per-gene summary → ④ integrated document.**
 
+**Two entry modes — route first (both are first-class, not fallbacks):**
+- **Mode A · keyword given** ("X에 관여하는 유전자", "review genes in X"): Phase 1 discovers and ranks genes from the keyword (with `--ot-overlay` for disease keywords), then 2 → 3 → 4.
+- **Mode B · gene list given** ("이 유전자들 문헌 정리해줘: GENE1, GENE2, GENE3"): **skip Phase 1 discovery/ranking**. Write the user's symbols to `output/manual/genes.tsv` (single `symbol` column, header row), then 2 → 3 → 4. Keyword handling: if the user also names a disease/keyword context, pass it as `--keyword` in Phase 2 for keyword-specific papers; with no context, omit `--keyword` for **general per-gene literature** and use the `핵심 문헌 요지` label in Phase 3. The confirmation gate (Phase 2) and citation verify (Phase 4) apply identically. OT overlay is a Mode-A feature only (it needs keyword→disease resolution and a discovered candidate pool), so Mode B produces no OT columns/section.
+
 ### Run directory (artifact naming — one place, everything chains off it)
 
 Every artifact of a single run lives under one **run directory** `output/<slug>/`, where `<slug>` is the confirmed keyword as lowercase kebab-case (`atopic dermatitis` → `atopic-dermatitis`). Fixed layout, so separate keywords never overwrite each other and each step finds its input by location:
@@ -115,8 +119,9 @@ Large-request / list-centric mode ends at the `Phase 1 · 결과` block (Phases 
 - **Large request (hundreds–1000)** ("1000 genes for atopy"): **list-centric mode** — see "Large requests" below.
 
 ```bash
-python scripts/fetch_genes.py --keyword "atopic dermatitis" --entity "@DISEASE_Dermatitis_Atopic" --organism human --max 20
+python scripts/fetch_genes.py --keyword "atopic dermatitis" --entity "@DISEASE_Dermatitis_Atopic" --organism human --max 20 --ot-overlay
 # --entity (token from `--resolve`) unions the concept's synonyms.
+# --ot-overlay is passed by default for disease keywords (see below); it is a no-op for non-disease terms.
 # writes output/<slug>/genes.tsv (+ genes_all_scored.tsv). --out overrides.
 ```
 
@@ -134,7 +139,7 @@ Alongside `genes.tsv`, the script always writes a sidecar `genes_all_scored.tsv`
 
 `evidence_pmids` are representative PMIDs **from the entity co-occurrence query only** — string-query PMIDs may not mention the gene at all, so they are never used as evidence.
 
-**Optional OpenTargets overlay (`--ot-overlay`).** Adds two **display-only** columns — `ot_genetic` (OpenTargets `genetic_association` score) and `ot_clinical` (`clinical`/known-drug score) — as a **DB cross-reference**, for disease keywords only (it resolves the keyword to an EFO/MONDO id; non-disease terms like `ferroptosis` and any network/lookup miss leave the columns empty, and the run never fails). It is **off by default** and **never touches ranking** — the sort/filter is still pure `spec_adj`+artifact. Its measured value is *complementary*, not a replacement: OpenTargets surfaces clinically-drugged targets that co-occurrence under-ranks (e.g. RA: CD40/TYK2/IL2RA — see `docs/mcp-eval-plan.md` §7-5). **Framing rule for later phases: these are OpenTargets DB scores, not literature evidence** — mention them only as "OpenTargets also reports genetic/clinical evidence for this gene," never cite them as a paper, never feed them to `verify_citations.py`, and never conflate them with the abstract-grounded summary.
+**OpenTargets overlay (`--ot-overlay`) — the skill passes it by default.** For disease keywords the workflow always runs Phase 1 with `--ot-overlay`. (The CLI flag itself defaults **off** so evals/tests run pure-literature — do not rely on the script default; the human-facing skill run is what turns it on.) It adds two **display-only** columns — `ot_genetic` (OpenTargets `genetic_association` score) and `ot_clinical` (`clinical`/known-drug score) — as a **DB cross-reference**, for disease keywords only (it resolves the keyword to an EFO/MONDO id; non-disease terms like `ferroptosis` and any network/lookup miss leave the columns empty, and the run never fails). It **never touches ranking** — the sort/filter is still pure `spec_adj`+artifact. It also writes `output/<slug>/ot_scores.tsv` (the full OT target list for that disease), which Phase 4 uses for the complement callout. Its measured value is *complementary*, not a replacement: OpenTargets surfaces genetic/clinically-drugged targets that co-occurrence under-ranks or misses entirely (e.g. breast cancer CHEK2/KRAS/PIK3CA; RA CD40/TYK2 — see `docs/mcp-eval-plan.md` §7-5, held-out reproduced 7/8 diseases). **Framing rule for later phases: these are OpenTargets DB scores, not literature evidence** — mention them only as "OpenTargets also reports genetic/clinical evidence for this gene," never cite them as a paper, never feed them to `verify_citations.py`, and never conflate them with the abstract-grounded summary.
 
 ### Query confirmation gate (before searching)
 
@@ -267,20 +272,37 @@ Assemble the per-gene summaries into a final document. **Save it as `output/<slu
 # <keyword> 관련 Gene 문헌 조사
 
 ## 요약 (한눈에 보기)
-| Gene | 키워드 연관성 (한 줄) | 근거 논문 수 | 최신 연도 |
-|------|----------------------|-------------|----------|
+| Gene | 키워드 연관성 (한 줄) | 근거 논문 수 | 최신 연도 | OT유전 | OT임상 |
+|------|----------------------|-------------|----------|--------|--------|
+> OT유전·OT임상 = OpenTargets DB 점수(문헌 근거 아님, 참고용). 값은 genes.tsv의 ot_genetic·ot_clinical, 없으면 –.
 
 ## Gene별 상세
 <Phase 3의 gene별 요약을 그대로 이어붙임>
+
+## OpenTargets 교차참조 (문헌 근거 아님)
+> OpenTargets DB가 유전/임상 근거로 지목하지만 위 문헌 상위 목록엔 없는 타깃. **문헌 미검증**, DB 점수일 뿐 — 논문 인용·요약과 혼동 금지. 후속 조사 lead로만.
+
+| Gene | OT유전 | OT임상 |
+|------|--------|--------|
+<scripts/ot_complement.py 출력을 그대로 렌더>
 
 ## 방법
 - Gene 목록: NCBI Gene, keyword="<keyword>", organism=<...>, N=<...>
 - 문헌: PubMed E-utilities, gene당 상위 <per-gene>편, 수집일 <YYYY-MM-DD>
 - 접근수준: full-text=PMC 무료 전문 이용 가능(요약은 abstract 기준), abstract-only=abstract만 공개
 - 철회 논문: PubMed가 Retracted Publication으로 표시한 논문은 ⚠철회로 표기하고 근거에서 제외
+- OpenTargets 오버레이: genetic/clinical 점수는 DB 교차참조(문헌 아님), 랭킹 미반영
 - 인용 검증: verify_citations.py로 인용된 모든 PMID가 수집 파일에 실재함을 기계 대조(orphan 0)
 - 주의: spec_adj(특이도)는 "그 병 맥락에서 얼마나 연구됐는가"의 지표로 동시 등장(부정·무관 결과 포함)을 셈 — 인과·연관의 증명이 아니며 최종 판단은 근거 abstract 확인 필요
 ```
+
+**OpenTargets overlay rendering (disease keywords).** Phase 1 ran with `--ot-overlay`, so: (1) fill the two OT columns in the 요약 table from `genes.tsv` (`ot_genetic`/`ot_clinical`; empty → `–`), and (2) build the `## OpenTargets 교차참조` section from the helper — it deterministically selects OT-flagged targets absent from the literature top-N (LLM must not hand-pick these):
+
+```bash
+python scripts/ot_complement.py --ot-scores output/<slug>/ot_scores.tsv --final output/<slug>/genes.tsv
+```
+
+Render its rows verbatim into the 교차참조 table. **Gating — if `ot_scores.tsv` is absent or the helper returns only a header** (non-disease keyword, or OT surfaced nothing beyond the literature list), **drop both the OT columns and the entire 교차참조 section**; the document is then byte-identical to a pure-literature run. These OT symbols are DB pointers only: never cite them as a PMID, never pass them to `verify_citations.py`, never merge them into per-gene summaries.
 
 After saving, **verify citations mechanically** before offering the doc as final:
 
