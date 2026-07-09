@@ -19,6 +19,7 @@ import runlog
 from runlog import info as log
 
 EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
+PUBTATOR = "https://www.ncbi.nlm.nih.gov/research/pubtator3-api"
 
 
 def _get(url):
@@ -48,6 +49,30 @@ def search_pmids(gene, keyword, n):
     term = urllib.parse.quote(f"{gene} AND {keyword}" if keyword else gene)
     url = f"{EUTILS}/esearch.fcgi?db=pubmed&term={term}&retmax={n}&sort=relevance&retmode=json{_key()}"
     return json.loads(_get(url))["esearchresult"].get("idlist", [])
+
+
+def search_pmids_entity(gene_id, entity, n):
+    """PubTator3 ENTITY search -- same query form as Phase 1
+    (`"@GENE_<id>" AND "<entity>"`), so a common-word symbol (CAT -> catalase)
+    can't pull in string-collision papers ("cat allergen"). Returns top-n PMIDs
+    by the search score. Callers pass this only when both gene_id and entity
+    exist; otherwise they use the free-text search_pmids fallback."""
+    q = urllib.parse.quote(f'"@GENE_{gene_id}" AND "{entity}"')
+    results, page = [], 1
+    while len(results) < n:
+        try:
+            d = json.loads(_get(f"{PUBTATOR}/search/?text={q}&page={page}"))
+        except ValueError:
+            break  # malformed body -> stop paging, return what we have
+        got = d.get("results", [])
+        results += got
+        if not got or page >= d.get("total_pages", 1):
+            break
+        page += 1
+        _sleep()
+    # PubTator pages come relevance-ordered, but sort by score to be explicit.
+    results.sort(key=lambda r: r.get("score", 0), reverse=True)
+    return [str(r["pmid"]) for r in results[:n]]
 
 
 def parse_pubmed_xml(xml_text):
@@ -120,6 +145,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--genes", required=True, help="genes.tsv from fetch_genes.py")
     ap.add_argument("--keyword", default="", help="omit for general gene literature (user-provided list)")
+    ap.add_argument("--entity", default="",
+                    help="disease entity token from Phase 1 (e.g. @DISEASE_MESH:D003876). "
+                         "When set, papers are searched by PubTator entity instead of free-text.")
     ap.add_argument("--per-gene", type=int, default=5)
     ap.add_argument("--out-dir", help="default: lit/ next to --genes (same run dir)")
     args = ap.parse_args()
@@ -140,10 +168,19 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
 
     runlog.section("COLLECT")
-    log(f"{len(genes)} genes · top {args.per_gene} papers each -> {out_dir}")
+    mode = "PubTator entity" if args.entity else "free-text esearch"
+    log(f"{len(genes)} genes · top {args.per_gene} papers each · search={mode} -> {out_dir}")
     for i, g in enumerate(genes):
         sym = g["symbol"]
-        pmids = search_pmids(sym, args.keyword, args.per_gene)
+        gid = (g.get("gene_id") or "").strip()
+        # Entity search when Phase 1 gave both a disease entity and this gene's id;
+        # otherwise (Mode B list / novel term / missing id) fall back to free-text.
+        if args.entity and gid:
+            pmids = search_pmids_entity(gid, args.entity, args.per_gene)
+            src = "entity"
+        else:
+            pmids = search_pmids(sym, args.keyword, args.per_gene)
+            src = "string"
         _sleep()
         recs = fetch_abstracts(pmids)
         _sleep()
@@ -152,7 +189,7 @@ def main():
             json.dump({"symbol": sym, "name": g.get("name", ""), "papers": recs},
                       f, ensure_ascii=False, indent=2)
         n_ft = sum(1 for r in recs if r["access"] == "full-text")
-        log(f"[{i + 1}/{len(genes)}] {sym}: {len(recs)} papers ({n_ft} full-text) -> {out}")
+        log(f"[{i + 1}/{len(genes)}] {sym} ({src}): {len(recs)} papers ({n_ft} full-text) -> {out}")
 
     runlog.section("RESULT")
     log(f"done: {len(genes)} genes -> {out_dir}")

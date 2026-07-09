@@ -205,9 +205,11 @@ Collect abstracts for the confirmed gene list. **Do not read abstract text in th
 ```bash
 echo OK > output/<slug>/genes.confirmed    # only after the user confirms the Phase 1 list
 python scripts/fetch_pubmed.py --genes output/<slug>/genes.tsv --keyword "<keyword>" \
-  --per-gene 5
+  --entity "@DISEASE_MESH:D003876" --per-gene 5
 # writes output/<slug>/lit/ by default (next to --genes). --out-dir overrides.
 ```
+
+**Pass the same `--entity` token used in Phase 1** (the confirmed disease entity). With it, each gene's papers are searched by PubTator entity (`"@GENE_<gene_id>" AND "<entity>"`) — the same NER-scoped query Phase 1 used, so a common-word symbol (`CAT`→catalase) can't pull in string-collision papers. Requires each gene row to carry its `gene_id` (always present in Mode-A `genes.tsv`). **Omit `--entity`** for Mode B (user-supplied list) or novel terms with no MeSH entity — the script then falls back to free-text `esearch` (`<symbol> AND <keyword>`, or `<symbol>` alone when `--keyword` is also omitted). Per gene, the `entity`/`string` path taken is printed in the log. Abstract text, `access`, and `retracted` are always filled by E-utilities `efetch` regardless of which search path chose the PMIDs.
 
 Produces `output/<slug>/lit/<symbol>.json` per gene. Each paper record:
 

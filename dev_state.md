@@ -1,7 +1,7 @@
 # gene-literature-review — 개발 상태 (dev_state)
 
 > 목적: 이 프로젝트가 **무엇을·왜·어떻게** 만들어졌는지, 그리고 **무엇을 시도했다 접었는지**를 한 곳에 정리.
-> 사람과 다른 에이전트가 맥락을 빠르게 잡는 용도. 최종 갱신: 2026-07-07.
+> 사람과 다른 에이전트가 맥락을 빠르게 잡는 용도. 최종 갱신: 2026-07-09.
 >
 > 세부 근거 문서: `docs/cdrs-eval-findings.md`(CDRS 기각), `docs/mcp-eval-plan.md`(MCP 대체 평가).
 
@@ -26,7 +26,7 @@ Claude Code **skill**. 사용자가 생물학 keyword(질병·pathway·phenotype
 scripts/fetch_genes.py     Phase 1 — keyword → 특이도 순 ranked gene 목록 (이 repo의 핵심);
                            옵션 --ot-overlay로 OpenTargets genetic/clinical 점수 컬럼(표시용)
 scripts/opentargets.py     OpenTargets GraphQL 헬퍼 (keyword→EFO 해석 + target datatype 점수); --ot-overlay가 사용
-scripts/fetch_pubmed.py    Phase 2 — gene별 PubMed abstract 수집 (lit/<SYMBOL>.json); retraction flag·PMID url·확인 gate 포함
+scripts/fetch_pubmed.py    Phase 2 — gene별 PubMed abstract 수집 (lit/<SYMBOL>.json); PMID 선별은 PubTator entity 검색(--entity, Phase 1과 동일 쿼리), 없으면 free-text esearch fallback; abstract 본문·access·retraction은 efetch가 채움; PMID url·확인 gate 포함
 scripts/verify_citations.py Phase 4 — 인용 PMID가 per-gene 파일에 실존하는지 기계 대조 (AI 아님, exit code)
 scripts/runlog.py          공용 로깅 (per-phase A+B 로그, tail -f 가능)
 scripts/test_*.py          fetch_genes·fetch_pubmed·verify_citations offline 회귀 테스트
@@ -193,6 +193,11 @@ fetch 계층 대체는 전부 부적격, 현 스크립트 유지가 정답.**
   miss 대부분은 여전히 `pool-miss` → ranking보다 candidate discovery/scan 단계가 병목.
 
 **남은 작업**:
+- [x] ~~Phase 2 문자열 검색 잔재~~ **entity 검색으로 전환 (2026-07-09, DESIGN.md §H)**. `fetch_pubmed.py`
+      PMID 선별이 free-text esearch → PubTator entity(`"@GENE_<id>" AND "<entity>"`, Phase 1과 동일)로 바뀜.
+      entity/`gene_id` 없으면(Mode B·novel term) free-text fallback 유지. abstract 본문·access·retraction은
+      여전히 efetch. FLG·CAT 라이브 검증 통과(CAT의 "cat allergy" 1편은 PubTator NER 실태그 확인, 문자열 오염 아님).
+      offline 회귀 테스트도 추가(`test_fetch_pubmed.py`: score 정렬·paging·malformed→empty를 `_get` mock으로 가드).
 - [ ] 인용은 `verify_citations.py`로 기계 가드(§3C②)되나, 요약 prose 품질·대규모 gene(10+) subagent
       fan-out 경로는 여전히 LLM 실행 의존 + 실검증 미완.
 - [ ] ⚠철회 경로는 unit test(D016441)로만 커버 — 철회 논문이 실제 포함되는 키워드로 end-to-end 실검증 미완.

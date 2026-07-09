@@ -246,6 +246,20 @@ A risk review of "AI-assisted literature review" found the identity-hallucinatio
 
 Convenience (same iteration): each paper record carries a ready-made `url`, and the summary renders PMIDs as PubMed hyperlinks plus a per-gene "전체 보기" link, so the human's final abstract check (the residual judgment #4 leaves to people) is one click.
 
+## Design H — Phase 2 entity-scoped search (2026-07-09)
+
+Phase 2 (`fetch_pubmed.py`) was the **last string-search holdout**: while Phase 1 ranks genes on PubTator *entities* (`"@GENE_<id>" AND "<entity>"`, so `CAT`→catalase, not the animal), Phase 2 then re-searched each gene's papers with a **free-text** E-utilities esearch (`<symbol> AND <keyword>`) — re-exposing common-word symbols to the exact string collision Phase 1 spent its design budget eliminating.
+
+Fix: when Phase 1's disease `--entity` token and the gene's `gene_id` are both present, Phase 2 selects PMIDs via the **same PubTator entity query** as Phase 1, then hands those PMIDs to E-utilities `efetch` for the abstract/`access`/`retracted` fields (PubTator search returns neither the abstract body nor the PMC-OA/retraction status, so efetch stays the body source). No entity or no `gene_id` (Mode B list, novel term) → unchanged free-text esearch fallback. The per-gene log prints which path (`entity`/`string`) was taken.
+
+| Aspect | Before | After |
+|--------|--------|-------|
+| PMID selection | free-text `esearch` (`CAT AND ...`) | `"@GENE_<id>" AND "<entity>"` PubTator search |
+| Abstract / access / retracted | E-utilities `efetch` | **unchanged** — still `efetch` |
+| Novel term / Mode-B list | free-text | **unchanged** — free-text fallback |
+
+Verified live (2026-07-09): FLG(2312) and CAT(847) collected under `@DISEASE_MESH:D003876` return only catalase/AD papers; the one "cat allergy" PMID (34026578) that surfaced was confirmed to genuinely carry PubTator's `@GENE_847` tag (NER, not our string collision), i.e. the entity path behaves as intended. Guarded offline by `test_fetch_pubmed.py` (score-desc ordering, paging up to `--per-gene`, non-JSON body → empty so the caller falls back), the network `_get` mocked.
+
 ## Open (non-fatal, absorbed by human escalation)
 
 - Ranking quality of the default top MeSH concept.

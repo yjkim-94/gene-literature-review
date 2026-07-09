@@ -16,7 +16,7 @@ gene-literature-review/
 ├── pipeline.html           animated end-to-end explainer (open in a browser)
 ├── scripts/
 │   ├── fetch_genes.py      keyword → gene list (entity-grounded specificity ranking)
-│   ├── fetch_pubmed.py     per-gene abstracts → files, PMC access labels, retraction flag, confirmation gate
+│   ├── fetch_pubmed.py     per-gene abstracts → files (entity-scoped PubMed search, free-text fallback), PMC access labels, retraction flag, confirmation gate
 │   ├── verify_citations.py mechanical PMID citation check (review md vs lit/*.json, exit code)
 │   ├── runlog.py           shared per-phase logger (section headers + timestamped lines, live)
 │   ├── test_fetch_genes.py ranking-logic self-check
@@ -89,7 +89,7 @@ Putting gene × paper × abstract into context makes cost grow quadratically. �
 - **Entity-grounded specificity (live)**: cuproptosis → FDX1(0.64) > DLAT > SLC31A1 > PDHA1, passengers (CD274/CDKN2A/PDCD1) all filtered out.
 - **atopic dermatitis (entity `@DISEASE_Dermatitis_Atopic`)**: FLG (filaggrin, the top AD susceptibility gene), TSLP, IL31/IL13/STAT6/JAK1 etc. are real AD genes, zero hub/passenger contamination.
 - **OpenTargets genetic-gold stress test (evals)**: `python evals/run_eval.py` measures overlap against OpenTargets `genetic_association` gold for disease keywords (`evals/.gt_cache`). The intentionally LOW score is a literature-genetics gap / stress-test indicator, not a skill-accuracy score; the task-aligned recall eval was retired 2026-07-08.
-- **Abstract parsing + Phase 2 gates**: `python scripts/test_fetch_pubmed.py` — inline-markup abstracts survive, retraction flag (D016441 yes / D016440 no), confirmation gate stops without `genes.confirmed`.
+- **Abstract parsing + Phase 2 gates + entity search**: `python scripts/test_fetch_pubmed.py` — inline-markup abstracts survive, retraction flag (D016441 yes / D016440 no), confirmation gate stops without `genes.confirmed`, and the PubTator entity search (`search_pmids_entity`) sorts by score, pages up to `--per-gene`, and returns empty on a non-JSON body (caller falls back to free-text).
 - **Citation grounding**: `python scripts/test_verify_citations.py` — orphan PMIDs are detected; on the live atopic-dermatitis review, 31 citations checked, 0 orphans.
 
 ## Not implemented (known gaps)

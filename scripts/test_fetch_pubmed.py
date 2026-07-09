@@ -6,12 +6,15 @@ starts with inline markup (PMID 34106037, measured), feeding empty text to the
 summary step. This guards the itertext() fix with a canned XML snippet that
 reproduces that exact shape.
 """
+import json
 import os
 import sys
 import tempfile
+import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from fetch_pubmed import parse_pubmed_xml, require_confirmation
+import fetch_pubmed
+from fetch_pubmed import parse_pubmed_xml, require_confirmation, search_pmids_entity
 
 # AbstractText and ArticleTitle both LEAD with a child element, so plain .text is
 # None -- the failure mode. Structured multi-part abstract + a PMC id too.
@@ -94,6 +97,73 @@ def test_retraction_notice_not_flagged():
     assert recs[0]["retracted"] is False
 
 
+def _mock_pubtator(pages):
+    """Fake _get that serves canned PubTator search pages keyed by &page=N and
+    records every URL it was asked for (so the query form can be asserted)."""
+    calls = []
+
+    def fake_get(url):
+        calls.append(url)
+        page = int(urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["page"][0])
+        return json.dumps(pages[page])
+
+    return fake_get, calls
+
+
+def _swap(fake_get):
+    """Install fake_get (and a no-op sleep) on the module, return a restore fn."""
+    orig_get, orig_sleep = fetch_pubmed._get, fetch_pubmed._sleep
+    fetch_pubmed._get, fetch_pubmed._sleep = fake_get, lambda: None
+    def restore():
+        fetch_pubmed._get, fetch_pubmed._sleep = orig_get, orig_sleep
+    return restore
+
+
+def test_entity_search_scores_and_topn():
+    # single page, out-of-order scores -> top-n by score desc, PMIDs as strings
+    pages = {1: {"count": 4, "total_pages": 1, "results": [
+        {"pmid": 111, "score": 0.2}, {"pmid": 222, "score": 0.9},
+        {"pmid": 333, "score": 0.5}, {"pmid": 444, "score": 0.1},
+    ]}}
+    fake_get, calls = _mock_pubtator(pages)
+    restore = _swap(fake_get)
+    try:
+        pmids = search_pmids_entity("2312", "@DISEASE_MESH:D003876", 3)
+    finally:
+        restore()
+    assert pmids == ["222", "333", "111"], pmids
+    # query is the entity form (quoted @GENE_<id>), page 1 requested
+    assert "%22%40GENE_2312%22" in calls[0], calls[0]
+    assert "page=1" in calls[0], calls[0]
+
+
+def test_entity_search_pages_until_n():
+    # n=5 spans two pages; must fetch page 2 then stop at total_pages
+    pages = {
+        1: {"total_pages": 2, "results": [
+            {"pmid": 1, "score": 0.5}, {"pmid": 2, "score": 0.4}, {"pmid": 3, "score": 0.3}]},
+        2: {"total_pages": 2, "results": [
+            {"pmid": 4, "score": 0.9}, {"pmid": 5, "score": 0.8}, {"pmid": 6, "score": 0.7}]},
+    }
+    fake_get, calls = _mock_pubtator(pages)
+    restore = _swap(fake_get)
+    try:
+        pmids = search_pmids_entity("847", "@DISEASE_MESH:D003876", 5)
+    finally:
+        restore()
+    assert len(calls) == 2, calls  # paged once, then stopped at total_pages
+    assert pmids == ["4", "5", "6", "1", "2"], pmids  # top 5 by score across pages
+
+
+def test_entity_search_malformed_returns_empty():
+    # a non-JSON body (e.g. an error page) must not crash -> empty, caller falls back
+    restore = _swap(lambda url: "<html>not json</html>")
+    try:
+        assert search_pmids_entity("2312", "@X", 5) == []
+    finally:
+        restore()
+
+
 def test_require_confirmation():
     with tempfile.TemporaryDirectory() as d:
         genes_path = os.path.join(d, "genes.tsv")
@@ -116,5 +186,8 @@ if __name__ == "__main__":
     test_empty_and_missing()
     test_retracted_publication_flagged()
     test_retraction_notice_not_flagged()
+    test_entity_search_scores_and_topn()
+    test_entity_search_pages_until_n()
+    test_entity_search_malformed_returns_empty()
     test_require_confirmation()
-    print("ok: fetch_pubmed XML parsing and confirmation gate")
+    print("ok: fetch_pubmed XML parsing, entity search, and confirmation gate")
