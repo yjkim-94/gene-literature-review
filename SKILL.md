@@ -244,6 +244,18 @@ Set the batch size and subagent count from the gene count `N`:
 
 Each agent reads only its batch's gene files, burning the abstract tokens in the subagent context and returning only summaries to the main context. **Give every subagent the exact same prompt verbatim** (substituting each `<SYMBOL>` in the batch) — any drift in instructions splits the output format across genes.
 
+Before spawning subagents, generate the batch artifacts from the confirmed `genes.tsv`; do not hand-copy gene lists into prompts:
+
+```bash
+python scripts/make_phase3_batches.py --genes output/<slug>/genes.tsv
+# Mode B with no keyword/context:
+python scripts/make_phase3_batches.py --genes output/<slug>/genes.tsv --general-literature
+```
+
+This writes `output/<slug>/phase3_batches/batchNN.symbols.txt` and `batchNN.prompt.txt`. `genes.tsv` remains the source of truth; the batch files are derived artifacts and may be deleted/rebuilt. The script uses the same even split rule above (`ceil(N/30)`, remainder distributed from the first batch) and removes stale `batch*.symbols.txt` / `batch*.prompt.txt` files in that output dir before rewriting.
+
+Spawn each subagent with only the corresponding `batchNN.prompt.txt` (and `batchNN.symbols.txt` as a quick audit list). For N > 240, run only 8 prompt files concurrently and queue later files as waves. The main context should keep only the batch file paths and returned summaries, not the raw per-gene abstracts.
+
 The output labels in the prompt below are the user-facing document and stay Korean:
 
 ```

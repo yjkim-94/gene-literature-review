@@ -19,6 +19,7 @@ gene-literature-review/
 ├── scripts/
 │   ├── fetch_genes.py      keyword → gene list (entity-grounded specificity ranking)
 │   ├── fetch_pubmed.py     per-gene abstracts → files (entity-scoped PubMed search, free-text fallback), PMC access labels, retraction flag, confirmation gate
+│   ├── make_phase3_batches.py Phase 3 subagent symbols/prompts → phase3_batches/
 │   ├── verify_citations.py mechanical PMID citation check (review md vs lit/*.json, exit code)
 │   ├── runlog.py           shared per-phase logger (section headers + timestamped lines, live)
 │   ├── test_fetch_genes.py ranking-logic self-check
@@ -85,11 +86,12 @@ The key is that the passenger filter is **statistics, not AI**. Passengers have 
 "아토피" (Korean) returns 0 hits in PubTator, and "atopy" misses the dominant term "atopic dermatitis," collapsing recall. → **Resolve the keyword to a PubTator concept entity** and pass it as `--entity` (e.g. `@DISEASE_Dermatitis_Atopic`). The specificity query becomes `"@GENE_<id>" AND "<entity>"`, which **unions the concept's surface synonyms** ("atopic eczema", "infantile eczema" → one disease entity) in a single exact call. **Not OR-expansion**: a grouping-less synonym OR collapses the PubTator parser (measured: `atopic dermatitis OR atopic eczema` → 20,466, *below* the single term's 66,111), and free-text synonyms are not auto-normalized. `python scripts/fetch_genes.py --keyword "<kw>" --resolve` lists the candidate entities with their paper counts so the concept is chosen by evidence, not by an AI's dominant-sense guess (blocks "AD"→Alzheimer mis-mapping); ambiguous / short keywords still require human confirmation. Novel terms with no MeSH entity (cuproptosis) omit `--entity` and proceed literal (free-text).
 
 ### 4. Token efficiency
-Putting gene × paper × abstract into context makes cost grow quadratically. → **A script writes abstract text to files**, never loading it into the main context. With many genes, subagents fan out to burn tokens in their own contexts. Current Phase 3 rule: sequential for ≤9 genes; for ≥10 genes, use batches of up to 30 genes per sonnet subagent (`agents = ceil(N/30)`, max 8 concurrent, waves beyond).
+Putting gene × paper × abstract into context makes cost grow quadratically. → **A script writes abstract text to files**, never loading it into the main context. With many genes, `make_phase3_batches.py` writes `output/<slug>/phase3_batches/batchNN.symbols.txt` and `batchNN.prompt.txt`; subagents read those prompts and burn abstract tokens in their own contexts. Current Phase 3 rule: sequential for ≤9 genes; for ≥10 genes, use batches of up to 30 genes per sonnet subagent (`agents = ceil(N/30)`, max 8 concurrent, waves beyond).
 
 ## Verification status
 
 - **Ranking logic**: `python scripts/test_fetch_genes.py` — floor + Wilson lower bound demote artifacts and keep specific core genes on top.
+- **Phase 3 batching**: `python scripts/test_make_phase3_batches.py` — 31 genes split as 16/15 and write batch symbols/prompts.
 - **Entity-grounded specificity (live)**: cuproptosis → FDX1(0.64) > DLAT > SLC31A1 > PDHA1, passengers (CD274/CDKN2A/PDCD1) all filtered out.
 - **atopic dermatitis (entity `@DISEASE_Dermatitis_Atopic`)**: FLG (filaggrin, the top AD susceptibility gene), TSLP, IL31/IL13/STAT6/JAK1 etc. are real AD genes, zero hub/passenger contamination.
 - **OpenTargets genetic-gold stress test (evals)**: `python evals/run_eval.py` measures overlap against OpenTargets `genetic_association` gold for disease keywords (`evals/.gt_cache`). The intentionally LOW score is a literature-genetics gap / stress-test indicator, not a skill-accuracy score; the task-aligned recall eval was retired 2026-07-08.

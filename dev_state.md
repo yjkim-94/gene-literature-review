@@ -27,6 +27,7 @@ scripts/fetch_genes.py     Phase 1 — keyword → 특이도 순 ranked gene 목
                            옵션 --ot-overlay로 OpenTargets genetic/clinical 점수 컬럼(표시용)
 scripts/opentargets.py     OpenTargets GraphQL 헬퍼 (keyword→EFO 해석 + target datatype 점수); --ot-overlay가 사용
 scripts/fetch_pubmed.py    Phase 2 — gene별 PubMed abstract 수집 (lit/<SYMBOL>.json); PMID 선별은 PubTator entity 검색(--entity, Phase 1과 동일 쿼리), 없으면 free-text esearch fallback; abstract 본문·access·retraction은 efetch가 채움; PMID url·확인 gate 포함
+scripts/make_phase3_batches.py Phase 3 — genes.tsv에서 batchNN.symbols.txt·batchNN.prompt.txt 생성
 scripts/verify_citations.py Phase 4 — 인용 PMID가 per-gene 파일에 실존하는지 기계 대조 (AI 아님, exit code)
 scripts/runlog.py          공용 로깅 (per-phase A+B 로그, tail -f 가능)
 scripts/test_*.py          fetch_genes·fetch_pubmed·verify_citations offline 회귀 테스트
@@ -191,6 +192,8 @@ fetch 계층 대체는 전부 부적격, 현 스크립트 유지가 정답.**
   `pool-miss`였고, 이는 문헌 co-occurrence discovery와 genetic gold의 축 차이를 드러내는 보조 지표로 기록.
 - Task-aligned GO-BP eval 초안: QuickGO 기반 5 keyword × 30 gold genes, scan 500. mean recall@30 0.14,
   miss 대부분은 여전히 `pool-miss` → ranking보다 candidate discovery/scan 단계가 병목.
+- Phase 3 subagent fan-out 입력 표준화: `make_phase3_batches.py`가 `genes.tsv`를 source of truth로
+  `phase3_batches/batchNN.symbols.txt`와 `batchNN.prompt.txt`를 재생성. 31 gene → 16/15 split offline 테스트 통과.
 
 **남은 작업**:
 - [x] ~~Phase 2 문자열 검색 잔재~~ **entity 검색으로 전환 (2026-07-09, DESIGN.md §H)**. `fetch_pubmed.py`
@@ -231,6 +234,7 @@ loci, lupus TREX1·IRF5·TNFAIP3·TLR7 등 SLE GWAS — 문헌 top-20이 놓친 
 ## 지침 파일 상태 (2026-07-09)
 
 - `AGENTS.md`가 repo 공통 project instruction의 원본이다.
+- 2026-07-09: Phase 3 fan-out now has `scripts/make_phase3_batches.py`; it regenerates `output/<slug>/phase3_batches/batchNN.symbols.txt` and `batchNN.prompt.txt` from `genes.tsv` before spawning subagents.
 - `CLAUDE.md`는 Claude Code의 공식 `@path` import 기능을 이용해 `@AGENTS.md` 한 줄만 둔다.
 - 설치본(`~/.claude/skills/gene-literature-review/`)과 dev repo는 `SKILL.md`, `AGENTS.md`, `CLAUDE.md` 기준 동기화 완료.
 
