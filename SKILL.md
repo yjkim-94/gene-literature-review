@@ -232,13 +232,15 @@ Read one gene file at a time and summarize with the template below. After proces
 
 ### 10 or more genes: subagent fan-out (even batch split)
 
-Set the number of subagents and each batch size from the gene count `N`:
+Set the batch size and subagent count from the gene count `N`:
 
-- **agents = min(8, ⌈N / 10⌉)** — target up to 10 genes per agent, but **cap concurrent agents at 8** (rate limit / manageability). When capped at 8, batch size exceeds 10.
-- Split genes **as evenly as possible** into batches, one per agent. Distribute the remainder one at a time starting from the first batch.
-  - e.g. 10 → 1[10] · 11 → 2[6/5] · 20 → 2[10/10] · 21 → 3[7/7/7] · 35 → 4[9/9/9/8] · 90 → **8**[12×6/11×2]
-- If genes are very numerous (batch per agent gets excessive), it's really a large request — consider Phase 1 list-centric mode instead.
-- Each subagent's **model is sonnet** — reading a file and filling a fixed template is a bounded task, matching cost, speed, and citation discipline.
+- **Fix the batch at ≤30 genes/agent; agents = ⌈N / 30⌉, cap 8 concurrent.** Cap the *batch*, not the agent count — an empirical token model (below) shows each spawned subagent costs a flat ~38.8k tokens regardless of batch, so the way to save tokens is *fewer, fuller* agents, not more smaller ones. 30 is the sweet spot: token/gene has flattened by 30 (≈6.0k, within 2% of the b=45 floor) while staying well under sonnet's context peak with headroom.
+- Split genes **as evenly as possible** into batches, one per agent (each ≤30). Distribute the remainder one at a time from the first batch.
+  - e.g. 10 → 1[10] · 30 → 1[30] · 31 → 2[16/15] · 45 → 2[23/22] · 60 → 2[30/30] · 90 → 3[30×3] · 100 → 4[25×4]
+- **If ⌈N/30⌉ > 8** (N > 240), run 8 agents concurrently and queue the rest into freed slots (waves) — but at that size it's really a large request, so prefer Phase 1 list-centric mode instead.
+- Each subagent's **model is sonnet** — reading a file and filling a fixed template is a bounded task, matching cost, speed, and citation discipline. Measured clean to b=45 (100% coverage, stable format); 30 is the recommended cap, not the failure point.
+
+**Token model (measured, 2026-07-09).** Per-agent total ≈ `38,800 + 4,950·b` tokens (b = genes in the batch; fit error <0.5% across b=1/5/15/30/45). So N genes over k agents cost `k·38,800 + 4,950·N` — the per-gene term is split-invariant, and **only the agent count k drives cost**. Minimize k (bigger batches) down to the quality/latency limit. e.g. N=30 as 1×30 (187k) beats 3×10 (265k) by ~29%.
 
 Each agent reads only its batch's gene files, burning the abstract tokens in the subagent context and returning only summaries to the main context. **Give every subagent the exact same prompt verbatim** (substituting each `<SYMBOL>` in the batch) — any drift in instructions splits the output format across genes.
 

@@ -260,6 +260,17 @@ Fix: when Phase 1's disease `--entity` token and the gene's `gene_id` are both p
 
 Verified live (2026-07-09): FLG(2312) and CAT(847) collected under `@DISEASE_MESH:D003876` return only catalase/AD papers; the one "cat allergy" PMID (34026578) that surfaced was confirmed to genuinely carry PubTator's `@GENE_847` tag (NER, not our string collision), i.e. the entity path behaves as intended. Guarded offline by `test_fetch_pubmed.py` (score-desc ordering, paging up to `--per-gene`, non-JSON body → empty so the caller falls back), the network `_get` mocked.
 
+## Design I — Phase 3 fan-out batch size, empirically tuned (2026-07-09)
+
+The fan-out batch size (genes/agent) had been an arbitrary ~10 (`agents = min(8, ⌈N/10⌉)`), which capped *agents* and inflated *batches* for large N — backwards. Replaced with a fixed **batch ≤30, `agents = ⌈N/30⌉`, cap 8 concurrent (waves beyond)** after a live measurement on 45 pooled gene lit files (atopic-dermatitis + parkinson + lupus), summarized by real sonnet subagents at b = 1/5/15/30/45, each output checked mechanically by `verify_citations.py`.
+
+Findings:
+- **Per-agent cost ≈ `38,800 + 4,950·b` tokens** (fit error <0.5%). N genes over k agents = `k·38,800 + 4,950·N`; the per-gene term is split-invariant, so **only agent count k drives cost** → fewer/bigger agents win. Every spawned subagent is a flat ~38.8k-token tax.
+- **Coverage held 100% to b=45** (no dropped/truncated genes); format stable. No context-pile-up collapse in range. token/gene flattens by ~30 (6.0k @30 vs 5.8k @45, ~2%).
+- **The one quality defect is co-presence cross-contamination, not load**: PINK1 cited a PRKN-only PMID (39358449, same PINK1/Parkin pathway) at b=5/30/45 — *same single orphan regardless of batch size* — and **PINK1 alone (b=1) was clean**, so it needs the confusable gene co-present, not a full context. `verify_citations.py` catches it mechanically (Phase 4 gate); re-summarize the flagged gene. Not a reason to shrink batches (b=1 costs ~9× the tokens/gene and the error still appears whenever the pair co-occurs).
+
+30 is the recommended cap (token knee + context-peak headroom under sonnet), not the failure point. Caveat: single measurement per b, nested/pooled batches — qualitative conclusions are robust across 5 runs, but the contamination *rate* (1/224) is one observation.
+
 ## Open (non-fatal, absorbed by human escalation)
 
 - Ranking quality of the default top MeSH concept.

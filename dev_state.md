@@ -1,7 +1,7 @@
 # gene-literature-review — 개발 상태 (dev_state)
 
 > 목적: 이 프로젝트가 **무엇을·왜·어떻게** 만들어졌는지, 그리고 **무엇을 시도했다 접었는지**를 한 곳에 정리.
-> 사람과 다른 에이전트가 맥락을 빠르게 잡는 용도. 최종 갱신: 2026-07-09.
+> 사람과 다른 에이전트가 맥락을 빠르게 잡는 용도. 최종 갱신: 2026-07-09 (Phase 3 fan-out 배치 튜닝 포함).
 >
 > 세부 근거 문서: `docs/cdrs-eval-findings.md`(CDRS 기각), `docs/mcp-eval-plan.md`(MCP 대체 평가).
 
@@ -198,8 +198,10 @@ fetch 계층 대체는 전부 부적격, 현 스크립트 유지가 정답.**
       entity/`gene_id` 없으면(Mode B·novel term) free-text fallback 유지. abstract 본문·access·retraction은
       여전히 efetch. FLG·CAT 라이브 검증 통과(CAT의 "cat allergy" 1편은 PubTator NER 실태그 확인, 문자열 오염 아님).
       offline 회귀 테스트도 추가(`test_fetch_pubmed.py`: score 정렬·paging·malformed→empty를 `_get` mock으로 가드).
-- [ ] 인용은 `verify_citations.py`로 기계 가드(§3C②)되나, 요약 prose 품질·대규모 gene(10+) subagent
-      fan-out 경로는 여전히 LLM 실행 의존 + 실검증 미완.
+- [x] ~~fan-out 배치 크기 임의(~10)~~ **실측 튜닝 완료 (2026-07-09, DESIGN.md §I)**. batch≤30 / `agents=⌈N/30⌉` /
+      동시 8(초과 wave)로 교체. 근거: 에이전트당 토큰 ≈ `38,800 + 4,950·b`(고정비 지배) → 적은/큰 에이전트가 유리,
+      coverage 45까지 100%, 유일 결함은 co-presence 교차오염(부하 아님, verify_citations가 잡음).
+- [ ] 인용은 `verify_citations.py`로 기계 가드(§3C②)되나, 요약 prose 품질 실검증은 여전히 LLM 실행 의존.
 - [ ] ⚠철회 경로는 unit test(D016441)로만 커버 — 철회 논문이 실제 포함되는 키워드로 end-to-end 실검증 미완.
 - [ ] OT overlay: **held-out 8질병(면역 밖 암·신경·대사·호흡 포함) 실검증 완료** — Measurement A는 여전히
       wash(대체 아님), **Measurement B 상보성은 7/8 질병에서 재현**(breast cancer CHEK2/KRAS/PIK3CA,
