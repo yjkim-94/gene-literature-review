@@ -334,12 +334,12 @@
     <!-- 5 -->
     <section class="scene" data-i="4">
       <h2><span class="idx">05</span> 근거 논문 요약 (일 나누기)</h2>
-      <p class="sub">상위 유전자의 논문 초록은 <b>프로그램이 파일로 따로 저장</b>한다(무거운 원문을 대화창에 안 올림). 유전자마다 담당 AI 하나가 <b>자기 파일 하나만</b> 읽고, 근거 논문 번호(PMID)를 달아 요약해 돌려준다.</p>
+      <p class="sub">상위 유전자의 논문 초록은 <b>프로그램이 파일로 따로 저장</b>한다(무거운 원문을 대화창에 안 올림). 담당 AI는 <b>자기 배치의 파일만</b> 읽고, 근거 논문 번호(PMID)를 달아 요약해 돌려준다.</p>
       <div class="body">
         <div class="pipe5 stagger">
           <div style="text-align:center">
             <div class="files"><span class="file"></span><span class="file"></span><span class="file"></span></div>
-            <div class="chip" style="margin-top:8px;border:0;background:transparent;color:var(--mut)">output/lit/*.json</div>
+            <div class="chip" style="margin-top:8px;border:0;background:transparent;color:var(--mut)">output/&lt;slug&gt;/lit/*.json</div>
           </div>
           <span class="arrow">→ 나눠 맡김 →</span>
           <div class="agents">
@@ -351,7 +351,7 @@
       </div>
       <div class="note big" style="margin-top:2px">
         <div class="h ok">일 나누는 규칙</div>
-        <p>유전자 <b>10개부터</b> 나눠 맡긴다. 담당 AI 수 = <b>min(8, ⌈유전자수 ÷ 10⌉)</b> — 한 명당 ~10개씩 <b>고르게</b> 나누되 <b>최대 8명</b>. 예: 20개→2명(10/10) · 21개→3명(7/7/7) · 90개→8명. 각 담당은 가벼운 <b>Sonnet</b> 모델을 쓴다.</p>
+        <p>유전자 <b>10개부터</b> 나눠 맡긴다. 담당 AI 수 = <b>⌈유전자수 ÷ 30⌉</b>, 한 명당 <b>최대 30개</b>, 동시 실행은 <b>최대 8명</b>(초과분은 다음 wave). 예: 20개→1명 · 31개→2명(16/15) · 90개→3명(30/30/30). 각 담당은 <b>Sonnet</b> 모델을 쓰고 같은 prompt를 그대로 적용한다.</p>
       </div>
       <div class="note big" style="margin-top:12px">
         <div class="h ok">근거를 믿을 수 있게 — 3가지</div>

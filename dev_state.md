@@ -1,7 +1,7 @@
 # gene-literature-review — 개발 상태 (dev_state)
 
 > 목적: 이 프로젝트가 **무엇을·왜·어떻게** 만들어졌는지, 그리고 **무엇을 시도했다 접었는지**를 한 곳에 정리.
-> 사람과 다른 에이전트가 맥락을 빠르게 잡는 용도. 최종 갱신: 2026-07-09 (Phase 3 fan-out 배치 튜닝 포함).
+> 사람과 다른 에이전트가 맥락을 빠르게 잡는 용도. 최종 갱신: 2026-07-09 (AGENTS/CLAUDE 지침 동기화 및 문서 최신화 포함).
 >
 > 세부 근거 문서: `docs/cdrs-eval-findings.md`(CDRS 기각), `docs/mcp-eval-plan.md`(MCP 대체 평가).
 
@@ -203,12 +203,12 @@ fetch 계층 대체는 전부 부적격, 현 스크립트 유지가 정답.**
       coverage 45까지 100%, 유일 결함은 co-presence 교차오염(부하 아님, verify_citations가 잡음).
 - [ ] 인용은 `verify_citations.py`로 기계 가드(§3C②)되나, 요약 prose 품질 실검증은 여전히 LLM 실행 의존.
 - [ ] ⚠철회 경로는 unit test(D016441)로만 커버 — 철회 논문이 실제 포함되는 키워드로 end-to-end 실검증 미완.
-- [ ] OT overlay: **held-out 8질병(면역 밖 암·신경·대사·호흡 포함) 실검증 완료** — Measurement A는 여전히
+- [x] ~~OT overlay 최종 문서 노출~~ **구현+e2e 완료 (2026-07-08)**. held-out 8질병(면역 밖 암·신경·대사·호흡 포함) 실검증 완료 — Measurement A는 여전히
       wash(대체 아님), **Measurement B 상보성은 7/8 질병에서 재현**(breast cancer CHEK2/KRAS/PIK3CA,
       melanoma CDK4/PARP1, IBD JAK2/TYK2/ITGA4 등; lupus만 empty). 면역 특유 아님 확정 → 표시 UX 착수 근거
       확보. **헬퍼 구현·검증 완료**(`scripts/ot_complement.py` genetic-forward 복제 선정 + `fetch_genes --ot-overlay`가
-      `ot_scores.tsv` 덤프). 남은 건 SKILL.md Phase 4 템플릿 통합(노출 A 요약컬럼 + 노출 B 콜아웃) + 실 overlay
-      run e2e. 상세 `docs/ot-overlay-ux-spec.md`.
+      `ot_scores.tsv` 덤프). SKILL.md Phase 4 템플릿 통합(요약 OT 컬럼 + OT 콜아웃)과 Parkinson/SLE 실 overlay
+      e2e도 완료(orphan 0). 상세 `docs/ot-overlay-ux-spec.md`.
 - [x] ~~task-aligned main recall eval~~ **폐기 (2026-07-08)**. GO-BP(QuickGO) recall@30 0.14는 gold-tool
       construct MISMATCH를 잰 것 — pathway membership ≠ literature prominence라, gold를 늘려도 안 오름.
       OT literature score도 co-occurrence 기반이라 tautology. codex 2-agent 3라운드 토론 결론: 어떤 gold든
@@ -228,23 +228,11 @@ loci, lupus TREX1·IRF5·TNFAIP3·TLR7 등 SLE GWAS — 문헌 top-20이 놓친 
 ① `ot_complement.py` ENSG-only(심볼 없는 Ensembl id) 필터, ② SKILL 템플릿 `?term=PMID+PMID+` → 숫자-only 문구
 (subagent가 리터럴 PMID를 URL에 넣던 버그). 산출 문서는 `output/<slug>/gene_literature_review.md`(gitignore).
 
-## (이전 RESUME — 참고)
+## 지침 파일 상태 (2026-07-09)
 
-**OT overlay UX 기능 = 코드 완료·검증됨(미커밋, 디스크에 있음).** 변경: `scripts/ot_complement.py`(신규),
-`scripts/fetch_genes.py`(ot_scores.tsv 덤프), `SKILL.md`(always-on overlay + Phase 4 노출 A/B + Two entry
-modes), `evals/candidate_c_bench.py`(caveat 문구 fix), `docs/ot-overlay-ux-spec.md`·`docs/mcp-server-design.md`
-(신규), `pipeline_dev.html`(신규, 스크립트 오케스트레이션 그래프 시각화). 오프라인 회귀·selftest 전 통과.
-
-**진행 중인 e2e(실사용 검증) — Parkinson + lupus 2질병:**
-- Phase 1·2 완료(`output/parkinson-disease/`, `output/systemic-lupus-erythematosus/` — gitignore).
-  genes.tsv(각 20 gene, OT 컬럼 채워짐)·ot_scores.tsv·lit/*.json(각 98/100편)·genes.confirmed=OK 존재.
-- Phase 3 진행: subagent 4개가 `output/<slug>/summaries_b1.md`·`summaries_b2.md`를 쓰는 중(멈춰도 파일 잔존).
-- **남은 Phase 4(재개 지점)**: 각 질병마다 ① `summaries_b1+b2.md` 병합해 `gene_literature_review.md` 조립
-  (헤더 + 요약 테이블[OT유전·OT임상 컬럼 포함] + `## OpenTargets 교차참조` 콜아웃 + 방법), ② 콜아웃은
-  `python scripts/ot_complement.py --ot-scores output/<slug>/ot_scores.tsv --final output/<slug>/genes.tsv`
-  출력 렌더(Parkinson=생성 예상, lupus=held-out에서 ot_only empty였으니 게이팅으로 섹션 생략되는지 확인),
-  ③ `python scripts/verify_citations.py --review output/<slug>/gene_literature_review.md`로 orphan 0 확인.
-- e2e 통과 후: repo → user skill(`~/.claude/skills/gene-literature-review/`) 동기화 + 커밋(원격 push).
+- `AGENTS.md`가 repo 공통 project instruction의 원본이다.
+- `CLAUDE.md`는 Claude Code의 공식 `@path` import 기능을 이용해 `@AGENTS.md` 한 줄만 둔다.
+- 설치본(`~/.claude/skills/gene-literature-review/`)과 dev repo는 `SKILL.md`, `AGENTS.md`, `CLAUDE.md` 기준 동기화 완료.
 
 **다음 에이전트가 먼저 읽을 것**: `docs/cdrs-eval-findings.md`(왜 CDRS를 접었는가), 이 파일, 그리고
 Phase 1 랭킹을 건드린다면 `scripts/test_fetch_genes.py`(회귀 가드).

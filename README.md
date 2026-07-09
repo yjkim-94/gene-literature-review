@@ -12,6 +12,8 @@ A Claude skill that takes a keyword (disease, pathway, phenotype, etc.) and prod
 ```
 gene-literature-review/
 ├── SKILL.md                4-phase workflow (gene list → collect literature → per-gene summary → integrate)
+├── AGENTS.md               shared project instructions for Codex/agents
+├── CLAUDE.md               Claude import shim (`@AGENTS.md`)
 ├── DESIGN.md               design rationale (loop-validation record — why it's built this way)
 ├── pipeline.html           animated end-to-end explainer (open in a browser)
 ├── scripts/
@@ -36,6 +38,8 @@ python scripts/fetch_genes.py --keyword "atopic dermatitis" --entity "@DISEASE_D
 Output is a tab-separated TSV (opens directly in Excel). `--entity` is optional - omit it for novel terms with no MeSH entity (free-text fallback); `--ot-overlay` applies to disease keywords. `--out` overrides the default run-dir path.
 
 Each phase also writes a live progress log into the run dir — `phase1_fetch_genes.log` (SCAN/FILTER/SCORE/RESULT) and, once you run `fetch_pubmed.py`, `phase2_fetch_pubmed.log` (COLLECT/RESULT). Both use a section-header + timestamped-line format and flush per line, so a running phase is watchable with `tail -f output/<slug>/phase1_fetch_genes.log`.
+
+After Phase 1, review `output/<slug>/genes.tsv` first. Phase 2 is intentionally stopped until the user approves the list and `output/<slug>/genes.confirmed` contains `OK`.
 
 ### Output columns (`genes.tsv`)
 
@@ -81,7 +85,7 @@ The key is that the passenger filter is **statistics, not AI**. Passengers have 
 "아토피" (Korean) returns 0 hits in PubTator, and "atopy" misses the dominant term "atopic dermatitis," collapsing recall. → **Resolve the keyword to a PubTator concept entity** and pass it as `--entity` (e.g. `@DISEASE_Dermatitis_Atopic`). The specificity query becomes `"@GENE_<id>" AND "<entity>"`, which **unions the concept's surface synonyms** ("atopic eczema", "infantile eczema" → one disease entity) in a single exact call. **Not OR-expansion**: a grouping-less synonym OR collapses the PubTator parser (measured: `atopic dermatitis OR atopic eczema` → 20,466, *below* the single term's 66,111), and free-text synonyms are not auto-normalized. `python scripts/fetch_genes.py --keyword "<kw>" --resolve` lists the candidate entities with their paper counts so the concept is chosen by evidence, not by an AI's dominant-sense guess (blocks "AD"→Alzheimer mis-mapping); ambiguous / short keywords still require human confirmation. Novel terms with no MeSH entity (cuproptosis) omit `--entity` and proceed literal (free-text).
 
 ### 4. Token efficiency
-Putting gene × paper × abstract into context makes cost grow quadratically. → **A script writes abstract text to files**, never loading it into the main context. With many genes, subagents fan out to burn tokens in their own contexts.
+Putting gene × paper × abstract into context makes cost grow quadratically. → **A script writes abstract text to files**, never loading it into the main context. With many genes, subagents fan out to burn tokens in their own contexts. Current Phase 3 rule: sequential for ≤9 genes; for ≥10 genes, use batches of up to 30 genes per sonnet subagent (`agents = ceil(N/30)`, max 8 concurrent, waves beyond).
 
 ## Verification status
 

@@ -80,7 +80,7 @@ scored : <scored>개 → 필터 통과 <통과수>개
 [core/특이]         상위 <a>개  (high spec_adj)
 [관련-pleiotropic]  별도 <b>개  (high co_papers, low spec_adj)
 
-→ gene 목록 확인해 주세요
+→ Phase 2는 아직 진행하지 않습니다. gene 목록을 확인한 뒤 승인해 주세요.
 ```
 
 ```
@@ -178,7 +178,7 @@ Then report and confirm:
 
 ### Result review + AI audit (optional, at scale)
 
-Read the result file and **confirm the gene list with the user first**. When the list is too large to review by hand, use an AI audit but **keep it narrow**:
+Read the result file, show the `Phase 1 · 결과` block, and **confirm the gene list with the user first**. Make the waiting state explicit: Phase 2 has not started, and it will start only after the user approves the gene list. When the list is too large to review by hand, use an AI audit but **keep it narrow**:
 
 - The AI audit is **not a relevance gate.** Passengers have real co-abstracts, so a grounded AI answers "related" for them too; core/passenger discrimination is the statistics' job (spec_adj · floor).
 - The AI audit's only role is **lexical disambiguation of common-word / short symbols** ("is CAT catalase or the animal here?"). Check such symbols in the high-confidence band and **hard-drop confirmed mistags**.

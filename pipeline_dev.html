@@ -172,7 +172,7 @@
         <div class="col" data-phase="3">
           <div class="cap">Phase 3 · 요약</div>
           <div class="nodes">
-            <div class="node llm" id="n_llm3" data-phase="3"><div class="ty">llm · subagent fan-out</div><div class="nm">gene별 요약</div><div class="sub">각 에이전트가 파일을 읽어 abstract 토큰 소모</div></div>
+            <div class="node llm" id="n_llm3" data-phase="3"><div class="ty">llm · subagent fan-out</div><div class="nm">gene별 요약</div><div class="sub">≤30 genes/agent · sonnet · 동일 prompt</div></div>
             <div class="node file" id="n_summaries" data-phase="3"><div class="ty">intermediate</div><div class="nm">per-gene 요약</div><div class="sub">PMID 인용 강제</div></div>
           </div>
         </div>
@@ -234,13 +234,13 @@ const STEPS = [
    p:"<b>fetch_genes.py</b>가 PubTator3로 키워드 논문에서 NER 태깅된 유전자 후보를 모으고, entity 기반 <b>동시출현 특이도(spec_adj)</b>로 순위를 매긴다. <code>--ot-overlay</code>면 <b>opentargets.py</b>가 OT 유전/임상 점수까지 붙인다. 산출: genes.tsv(순위)·genes_all_scored.tsv(전량)·ot_scores.tsv(OT 전체).",
    inv:["랭킹은 순수 문헌 특이도","OT는 표시용 — 순위 미반영"]},
   {t:"확인 게이트 · fail-closed",
-   p:"Phase 2는 <b>genes.confirmed</b>에 사람이 OK를 쓰기 전까지 스크립트 레벨에서 <b>정지</b>한다. 미검토 목록이 자동으로 문헌 수집까지 흘러가는 걸 코드로 막는다 — default 상태가 '정지'.",
+   p:"Phase 1 결과를 보여준 뒤 <b>Phase 2는 아직 진행하지 않았음</b>을 명시하고 승인 대기한다. Phase 2는 <b>genes.confirmed</b>에 사람이 OK를 쓰기 전까지 스크립트 레벨에서 <b>정지</b>한다. 미검토 목록이 자동으로 문헌 수집까지 흘러가는 걸 코드로 막는다 — default 상태가 '정지'.",
    inv:["지시가 아니라 코드로 강제한 게이트"], warn:true},
   {t:"Phase 2 · 문헌 수집",
    p:"<b>fetch_pubmed.py</b>가 확정된 gene마다 PubMed E-utilities에서 상위 N편의 abstract를 받아 <b>lit/&lt;SYMBOL&gt;.json 파일로 저장</b>한다. 철회 논문 플래그·PMC 접근수준·PubMed 링크가 함께 기록된다.",
    inv:["abstract 원문은 context가 아니라 파일로 — 토큰 폭발 차단"]},
   {t:"Phase 3 · gene별 요약",
-   p:"gene가 10개 이상이면 <b>서브에이전트로 fan-out</b> — 각 에이전트가 자기 배치의 lit 파일만 읽어 요약하고, abstract 토큰을 <b>서브 컨텍스트에서 소모</b>한 뒤 요약만 반환한다. 모든 주장에 실재 PMID 인용을 강제한다.",
+   p:"gene가 10개 이상이면 <b>서브에이전트로 fan-out</b>한다. 현재 규칙은 <b>≤30 genes/agent</b>, <b>agents=⌈N/30⌉</b>, 동시 최대 8개(초과분은 wave)다. 각 에이전트는 자기 배치의 lit 파일만 읽고, 같은 prompt를 그대로 적용해 요약만 반환한다. 모든 주장에 실재 PMID 인용을 강제한다.",
    inv:["gene×논문 토큰이 메인 context로 안 올라옴"]},
   {t:"Phase 4 · 통합·검증",
    p:"요약을 최종 문서로 조립한다. <b>ot_complement.py</b>가 문헌 상위 목록이 놓친 OT 타깃을 <b>결정적으로</b> 골라 교차참조 콜아웃을 만든다(LLM이 손으로 고르지 않음). 마지막에 <b>verify_citations.py</b>가 문서의 모든 인용 PMID가 lit 파일에 실재하는지 <b>글자 대조</b>한다 — orphan이 있으면 exit 1.",
