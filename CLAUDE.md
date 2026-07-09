@@ -21,16 +21,14 @@
 `worknote_YYMMDD.md`(오늘 날짜)를 기존 형식(목적·대상 데이터·작업 절차·주요 설정·출력 결과)으로 작성/갱신.
 - worknote는 `.gitignore` 대상(**로컬 전용**) — 커밋하지 않는다.
 
-### 4. install 동기화
-worknote까지 쓴 뒤, repo를 설치본(`~/.claude/skills/gene-literature-review/`)에 미러링한다.
-rsync가 없으므로 tar 오버레이 사용:
+### 4. install 동기화 (보통 자동 — 수동 불필요)
+설치본(`~/.claude/skills/gene-literature-review/`)은 **SessionStart hook**
+(`~/.claude/sync-codex-skills.ps1`)이 `robocopy "$src" "$dst" /MIR /XD output .git`로
+매 세션 시작마다 repo→install 미러링한다. 커밋·푸시만 해두면 다음 세션에서 자동 반영되므로
+평소엔 수동 sync가 필요 없다.
 
-```bash
-cd Z:/home/yjkim/dev/gene-literature-review && \
-tar -c --exclude='./.git' --exclude='./output' --exclude='__pycache__' \
-  --exclude='./.agents' --exclude='./.codex' --exclude='./.claude' \
-  --exclude='./.gitignore' --exclude='./.gitattributes' \
-  -f - . | tar -x -C ~/.claude/skills/gene-literature-review/
+**같은 세션 안에서 방금 바꾼 걸 즉시 설치본에 반영해야 할 때만** 수동 실행(hook와 동일 명령):
+
+```powershell
+robocopy "Z:\home\yjkim\dev\gene-literature-review" "$env:USERPROFILE\.claude\skills\gene-literature-review" /MIR /XD output .git
 ```
-
-동기화 후 핵심 파일(`SKILL.md`, `scripts/*.py`) `diff`로 일치 확인.
