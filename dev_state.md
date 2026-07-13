@@ -64,6 +64,8 @@ PubTator3의 **entity 기반 co-occurrence**로 특이도를 잰다(문자열 ti
 - **2026-07-07 OT overlay(옵션), 2026-07-13 rescue 확장**: `--ot-overlay`로 `ot_genetic`·`ot_clinical`
   컬럼을 붙이고, `ot_genetic > 0 OR ot_clinical > 0` target을 exact NCBI Gene mapping 후 scoring 후보에
   추가. **OT ranking bonus는 없음**(정렬은 여전히 spec_adj+artifact), 실패해도 가능한 후보만 사용하고 통과.
+  **OT rescue는 human 전용** — OT 심볼은 human 대문자(`IL7R`)라 non-human `--organism`(mouse `Il7r`)은
+  0개 매칭 → rescue·컬럼 빈 결과. 조용한 empty 대신 경고 로그로 알림(코드 미수정 결정, 2026-07-13).
   → 근거: MCP 평가에서 OT가 대체는 아니나 문헌이 놓친 임상 타깃을 건지는 **보완축**임을 측정(§3D).
 
 ---

@@ -524,6 +524,12 @@ def main():
                 log(f"OT overlay: {args.keyword} -> {efo_id} ({disease_name})")
                 ot_scores = opentargets.fetch_target_scores(efo_id)
                 want = ORGANISM_TAX.get(args.organism.lower(), args.organism)
+                # OpenTargets symbols are human (uppercase). exact_symbol_gene
+                # can't match a non-human organism's title-case symbol (Il7r),
+                # so OT rescue is human-only -- warn instead of silently empty.
+                if args.organism.lower() != "human":
+                    log(f"WARNING: OT rescue is human-only; --organism {args.organism} "
+                        f"maps 0 OT targets (OT columns/rescue effectively empty)")
                 ot_extra = ot_candidates(ot_scores, want)
                 log(f"OT rescue: mapped {len(ot_extra)}/{len(ot_scores)} OT targets "
                     f"to exact NCBI Gene IDs")
