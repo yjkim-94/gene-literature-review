@@ -1,7 +1,7 @@
 # gene-literature-review — 개발 상태 (dev_state)
 
 > 목적: 이 프로젝트가 **무엇을·왜·어떻게** 만들어졌는지, 그리고 **무엇을 시도했다 접었는지**를 한 곳에 정리.
-> 사람과 다른 에이전트가 맥락을 빠르게 잡는 용도. 최종 갱신: 2026-07-09 (AGENTS/CLAUDE 지침 동기화 및 문서 최신화 포함).
+> 사람과 다른 에이전트가 맥락을 빠르게 잡는 용도. 최종 갱신: 2026-07-13 (Phase 4 결정적 조립 스크립트 integrate_review.py 추가, add_pmid_links.py를 근거표 PMID 기반으로 전환).
 >
 > 세부 근거 문서: `docs/cdrs-eval-findings.md`(CDRS 기각), `docs/mcp-eval-plan.md`(MCP 대체 평가).
 
@@ -28,6 +28,8 @@ scripts/fetch_genes.py     Phase 1 — keyword → 특이도 순 ranked gene 목
 scripts/opentargets.py     OpenTargets GraphQL 헬퍼 (keyword→EFO 해석 + target datatype 점수); --ot-overlay가 사용
 scripts/fetch_pubmed.py    Phase 2 — gene별 PubMed abstract 수집 (lit/<SYMBOL>.json); PMID 선별은 PubTator entity 검색(--entity, Phase 1과 동일 쿼리), 없으면 free-text esearch fallback; abstract 본문·access·retraction은 efetch가 채움; PMID url·확인 gate 포함
 scripts/make_phase3_batches.py Phase 3 — genes.tsv에서 batchNN.symbols.txt·batchNN.prompt.txt 생성
+scripts/integrate_review.py Phase 4 — genes.tsv+summaries+lit(+ot_scores.tsv)을 최종 문서(gene_literature_review.md)로 결정적 조립 (요약표·gene별 상세·OT 교차참조·방법). 수기 조립 대체, ot_complement.py 내부 호출
+scripts/add_pmid_links.py  Phase 4 — 각 gene 근거표의 PMID로 '전체 보기' PubMed 링크 채움 (stdlib, 네트워크 없음)
 scripts/verify_citations.py Phase 4 — 인용 PMID가 per-gene 파일에 실존하는지 기계 대조 (AI 아님, exit code)
 scripts/runlog.py          공용 로깅 (per-phase A+B 로그, tail -f 가능)
 scripts/test_*.py          fetch_genes·fetch_pubmed·verify_citations offline 회귀 테스트

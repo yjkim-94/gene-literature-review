@@ -20,6 +20,8 @@ gene-literature-review/
 │   ├── fetch_genes.py      keyword → gene list (entity-grounded specificity ranking)
 │   ├── fetch_pubmed.py     per-gene abstracts → files (entity-scoped PubMed search, free-text fallback), PMC access labels, retraction flag, confirmation gate
 │   ├── make_phase3_batches.py Phase 3 subagent symbols/prompts → phase3_batches/
+│   ├── integrate_review.py Phase 4 deterministic assembler (genes.tsv + summaries + lit + ot_scores → gene_literature_review.md)
+│   ├── add_pmid_links.py    Phase 4 fills each gene's "전체 보기" PubMed link from its evidence-table PMIDs (stdlib, no network)
 │   ├── verify_citations.py mechanical PMID citation check (review md vs lit/*.json, exit code)
 │   ├── runlog.py           shared per-phase logger (section headers + timestamped lines, live)
 │   ├── test_fetch_genes.py ranking-logic self-check

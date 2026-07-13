@@ -181,7 +181,7 @@
           <div class="cap">Phase 4 · 통합·검증</div>
           <div class="nodes">
             <div class="node script" id="n_otcomp" data-phase="4"><div class="ty">script</div><div class="nm">ot_complement.py</div><div class="sub">문헌이 놓친 OT 타깃 콜아웃(결정적)</div></div>
-            <div class="node llm" id="n_assemble" data-phase="4"><div class="ty">llm</div><div class="nm">문서 조립</div><div class="sub">요약 + OT 교차참조</div></div>
+            <div class="node script" id="n_assemble" data-phase="4"><div class="ty">script · 결정적</div><div class="nm">integrate_review.py</div><div class="sub">요약+OT+방법 자동 조립 · add_pmid_links.py로 링크 채움</div></div>
             <div class="node file" id="n_doc" data-phase="4"><div class="ty">output</div><div class="nm">gene_literature_review.md</div><div class="sub">최종 문서</div></div>
             <div class="node script" id="n_verify" data-phase="4"><span class="badge safe">기계 대조</span><div class="ty">script</div><div class="nm">verify_citations.py</div><div class="sub">인용 PMID가 파일에 실재? orphan 0</div></div>
           </div>
@@ -243,7 +243,7 @@ const STEPS = [
    p:"gene가 10개 이상이면 <b>서브에이전트로 fan-out</b>한다. 현재 규칙은 <b>≤30 genes/agent</b>, <b>agents=⌈N/30⌉</b>, 동시 최대 8개(초과분은 wave)다. 각 에이전트는 자기 배치의 lit 파일만 읽고, 같은 prompt를 그대로 적용해 요약만 반환한다. 모든 주장에 실재 PMID 인용을 강제한다.",
    inv:["gene×논문 토큰이 메인 context로 안 올라옴"]},
   {t:"Phase 4 · 통합·검증",
-   p:"요약을 최종 문서로 조립한다. <b>ot_complement.py</b>가 문헌 상위 목록이 놓친 OT 타깃을 <b>결정적으로</b> 골라 교차참조 콜아웃을 만든다(LLM이 손으로 고르지 않음). 마지막에 <b>verify_citations.py</b>가 문서의 모든 인용 PMID가 lit 파일에 실재하는지 <b>글자 대조</b>한다 — orphan이 있으면 exit 1.",
+   p:"<b>integrate_review.py</b>가 genes.tsv·요약·lit·ot_scores.tsv를 읽어 요약표·gene별 상세·OT 교차참조·방법 섹션을 <b>결정적으로 자동 조립</b>한다(LLM 수기 조립 아님). 이때 <b>ot_complement.py</b>를 내부 호출해 문헌 상위 목록이 놓친 OT 타깃 콜아웃을 만들고, <b>add_pmid_links.py</b>가 각 gene의 근거표 PMID로 '전체 보기' 링크를 채운다. 마지막에 <b>verify_citations.py</b>가 문서의 모든 인용 PMID가 lit 파일에 실재하는지 <b>글자 대조</b>한다 — orphan이 있으면 exit 1.",
    inv:["검증은 모델 없는 문자 비교 — 지어낼 여지 0"]},
 ];
 

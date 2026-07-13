@@ -282,7 +282,13 @@ If a batch has 2 or more genes, instruct the agent to apply the prompt above to 
 
 ## Phase 4 — Integrated document
 
-Assemble the per-gene summaries into a final document. **Save it as `output/<slug>/gene_literature_review.md`** (fixed filename, inside the run dir next to `genes.tsv`/`lit/`) unless the user names another path. Always use this structure (the document is user-facing, so its headings stay Korean):
+Assemble the per-gene summaries into a final document. **Save it as `output/<slug>/gene_literature_review.md`** (fixed filename, inside the run dir next to `genes.tsv`/`lit/`) unless the user names another path. Use the deterministic integration script first; do not hand-assemble the document unless the script is missing or fails:
+
+```bash
+python scripts/integrate_review.py --run-dir output/<slug> --keyword "<keyword>" --organism <organism>
+```
+
+The script reads `genes.tsv`, `summaries/batch*.md`, `lit/*.json`, and optional `ot_scores.tsv`; it writes the summary table, per-gene details, OpenTargets cross-reference, and method section. Always use this structure (the document is user-facing, so its headings stay Korean):
 
 ```markdown
 # <keyword> 관련 Gene 문헌 조사
@@ -312,7 +318,7 @@ Assemble the per-gene summaries into a final document. **Save it as `output/<slu
 - 주의: spec_adj(특이도)는 "그 병 맥락에서 얼마나 연구됐는가"의 지표로 동시 등장(부정·무관 결과 포함)을 셈 — 인과·연관의 증명이 아니며 최종 판단은 근거 abstract 확인 필요
 ```
 
-**OpenTargets overlay rendering (disease keywords).** Phase 1 ran with `--ot-overlay`, so: (1) fill the two OT columns in the 요약 table from `genes.tsv` (`ot_genetic`/`ot_clinical`; empty → `–`), and (2) build the `## OpenTargets 교차참조` section from the helper — it deterministically selects OT-flagged targets absent from the literature top-N (LLM must not hand-pick these):
+**OpenTargets overlay rendering (disease keywords).** `integrate_review.py` already does both of the following when `ot_scores.tsv` is present — this block is the spec it implements and the manual fallback if you must hand-assemble. Phase 1 ran with `--ot-overlay`, so: (1) fill the two OT columns in the 요약 table from `genes.tsv` (`ot_genetic`/`ot_clinical`; empty → `–`), and (2) build the `## OpenTargets 교차참조` section from the helper — it deterministically selects OT-flagged targets absent from the literature top-N (LLM must not hand-pick these):
 
 ```bash
 python scripts/ot_complement.py --ot-scores output/<slug>/ot_scores.tsv --final output/<slug>/genes.tsv
