@@ -17,6 +17,7 @@ Every artifact of a single run lives under one **run directory** `output/<slug>/
 
 ```
 output/<slug>/
+  run_config.json               # Phase 1 CLI options used (self-documenting run)
   phase1_fetch_genes.log        # Phase 1 progress log (A+B format, live, tail -f)
   genes.tsv                     # Phase 1 ranked list
   genes_all_scored.tsv          # Phase 1 pre-filter sidecar (auto)

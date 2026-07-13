@@ -504,6 +504,12 @@ def main():
     # appears immediately and the phase log fills line-by-line (info() flushes)
     # -- the run can be watched live via `tail -f`.
     runlog.open_log(os.path.dirname(out) or ".", "phase1_fetch_genes.log")
+    # persist the exact option values of this run so a finished run dir is
+    # self-documenting / reproducible (vars(args) already holds every option).
+    cfg = dict(vars(args), timestamp=time.strftime("%Y-%m-%d %H:%M:%S"))
+    with open(os.path.join(os.path.dirname(out) or ".", "run_config.json"),
+              "w", encoding="utf-8") as fh:
+        json.dump(cfg, fh, indent=2, ensure_ascii=False)
     if not os.environ.get("NCBI_API_KEY"):
         log("no NCBI_API_KEY set -- running at 3 req/s. Set the env var for 10 req/s "
             "(see README > Notes).")

@@ -1,7 +1,7 @@
 # gene-literature-review — 개발 상태 (dev_state)
 
 > 목적: 이 프로젝트가 **무엇을·왜·어떻게** 만들어졌는지, 그리고 **무엇을 시도했다 접었는지**를 한 곳에 정리.
-> 사람과 다른 에이전트가 맥락을 빠르게 잡는 용도. 최종 갱신: 2026-07-13 (Phase 4 결정적 조립 스크립트 integrate_review.py 추가, add_pmid_links.py를 근거표 PMID 기반으로 전환).
+> 사람과 다른 에이전트가 맥락을 빠르게 잡는 용도. 최종 갱신: 2026-07-13 (Phase 4 결정적 조립 스크립트 integrate_review.py 추가, add_pmid_links.py를 근거표 PMID 기반으로 전환; fetch_genes.py가 run_config.json으로 사용 옵션 기록).
 >
 > 세부 근거 문서: `docs/cdrs-eval-findings.md`(CDRS 기각), `docs/mcp-eval-plan.md`(MCP 대체 평가).
 

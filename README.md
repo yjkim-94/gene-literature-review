@@ -35,7 +35,7 @@ Run:
 cd gene-literature-review
 # 1. resolve the keyword to a PubTator concept entity (pick one by paper count)
 python scripts/fetch_genes.py --keyword "atopic dermatitis" --resolve
-# 2. rank genes; writes output/<slug>/genes.tsv (+ genes_all_scored.tsv)
+# 2. rank genes; writes output/<slug>/genes.tsv (+ genes_all_scored.tsv, run_config.json)
 python scripts/fetch_genes.py --keyword "atopic dermatitis" --entity "@DISEASE_Dermatitis_Atopic" --max 20 --ot-overlay
 ```
 Output is a tab-separated TSV (opens directly in Excel). `--entity` is optional - omit it for novel terms with no MeSH entity (free-text fallback); `--ot-overlay` applies to disease keywords. `--out` overrides the default run-dir path.
