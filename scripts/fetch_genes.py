@@ -291,7 +291,53 @@ def pick_candidates(cnt, want, pool):
     return picked
 
 
-def resolve_human(cnt, keyword, entity, organism, max_genes, min_spec, min_co, min_gene_papers):
+def ncbi_gene_summary(gids):
+    if not gids:
+        return {}
+    ids = ",".join(gids)
+    return json.loads(_get(f"{EUTILS}/esummary.fcgi?db=gene&id={ids}&retmode=json{_key()}"))["result"]
+
+
+def exact_symbol_gene(symbol, organism):
+    term = urllib.parse.quote(f"{symbol}[sym] AND {organism}[orgn]")
+    data = json.loads(_get(f"{EUTILS}/esearch.fcgi?db=gene&term={term}&retmode=json{_key()}"))
+    gids = data.get("esearchresult", {}).get("idlist", [])
+    summaries = ncbi_gene_summary(gids)
+    matches = [
+        (gid, summaries[gid])
+        for gid in gids
+        if summaries.get(gid, {}).get("name") == symbol
+        and summaries.get(gid, {}).get("organism", {}).get("scientificname") == organism
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
+def ot_candidates(scores, organism):
+    """Map OT approved symbols to exact NCBI Gene records for scoring rescue."""
+    picked = []
+    skipped = 0
+    items = sorted(scores.items())
+    for i, (symbol, score) in enumerate(items, 1):
+        if i == 1 or i % 50 == 0 or i == len(items):
+            log(f"OT rescue mapping [{i}/{len(items)}]: {symbol}")
+        try:
+            match = exact_symbol_gene(symbol, organism)
+        except (Exception, SystemExit) as error:
+            skipped += 1
+            log(f"WARNING: OT rescue mapping skipped {symbol}: {error}")
+            continue
+        if match:
+            picked.append(match)
+        else:
+            skipped += 1
+        time.sleep(0.34)
+    if skipped:
+        log(f"OT rescue mapping: skipped {skipped}/{len(items)} targets")
+    return picked
+
+
+def resolve_human(cnt, keyword, entity, organism, max_genes, min_spec, min_co,
+                  min_gene_papers, extra_candidates=None):
     """Rank candidate genes by keyword-specificity on a PubTator entity basis.
 
     Specificity is (papers where the gene ENTITY co-occurs with the keyword) /
@@ -311,8 +357,16 @@ def resolve_human(cnt, keyword, entity, organism, max_genes, min_spec, min_co, m
     want = ORGANISM_TAX.get(organism.lower(), organism)
     pool = SCORE_MULTIPLE * max_genes
     picked = pick_candidates(cnt, want, pool)
+    seen = {gid for gid, _ in picked}
+    extras = []
+    for gid, rec in extra_candidates or []:
+        if gid in seen or rec.get("organism", {}).get("scientificname") != want:
+            continue
+        extras.append((gid, rec))
+        seen.add(gid)
+    picked.extend(extras)
     log(f"organism filter: {len(cnt)} candidates -> {len(picked)} {organism} "
-        f"matches to score (cap {pool})")
+        f"matches to score (cap {pool}, +{len(extras)} OT candidates)")
 
     runlog.section("SCORE")
     rows = []
@@ -356,7 +410,7 @@ TSV_COLS = ["symbol", "gene_id", "name", "co_papers", "gene_papers",
 
 
 def annotate_ot(rows, scores):
-    """Attach display-only OpenTargets scores to already-ranked rows."""
+    """Attach OpenTargets scores to scored rows."""
     for row in rows:
         score = scores.get(row["symbol"])
         if not score:
@@ -421,10 +475,10 @@ def main():
                     help="resolve --keyword to PubTator concept-entity candidates "
                          "(token, biotype, paper count) and exit -- pick one and pass it as --entity")
     ap.add_argument("--ot-overlay", action="store_true",
-                    help="annotate each gene with OpenTargets genetic_association and "
-                         "clinical(known-drug) scores as a DB cross-reference (display "
-                         "only, not used for ranking); disease keywords only, silently "
-                         "empty otherwise")
+                    help="for disease keywords, add OpenTargets genetic/clinical "
+                         "targets as NCBI-mapped scoring candidates and annotate "
+                         "ot_genetic/ot_clinical columns; no OT ranking bonus; "
+                         "silently empty for non-disease keywords")
     args = ap.parse_args()
 
     # --resolve: objective entity lookup for the query gate, then stop. Prints
@@ -457,10 +511,8 @@ def main():
     cnt = rank_gene_ids(search_text(args.keyword, args.entity), args.scan)
     if not cnt:
         log("no genes found for keyword")
-    genes, all_scored = resolve_human(cnt, args.keyword, args.entity, args.organism, args.max,
-                                      args.min_specificity, args.min_co,
-                                      args.min_gene_papers)
-
+    ot_scores = {}
+    ot_extra = []
     if args.ot_overlay:
         try:
             efo = opentargets.resolve_efo(args.keyword)
@@ -471,13 +523,22 @@ def main():
                 efo_id, disease_name = efo
                 log(f"OT overlay: {args.keyword} -> {efo_id} ({disease_name})")
                 ot_scores = opentargets.fetch_target_scores(efo_id)
-                annotate_ot(genes, ot_scores)
-                annotate_ot(all_scored, ot_scores)
-                ot_path = os.path.join(os.path.dirname(out) or ".", "ot_scores.tsv")
-                write_ot_scores(ot_path, ot_scores)
-                log(f"OT overlay: dumped {len(ot_scores)} OT targets -> {ot_path}")
+                want = ORGANISM_TAX.get(args.organism.lower(), args.organism)
+                ot_extra = ot_candidates(ot_scores, want)
+                log(f"OT rescue: mapped {len(ot_extra)}/{len(ot_scores)} OT targets "
+                    f"to exact NCBI Gene IDs")
         except Exception as error:
             log(f"WARNING: OT overlay failed: {error} -- leaving OT columns empty")
+    genes, all_scored = resolve_human(cnt, args.keyword, args.entity, args.organism, args.max,
+                                      args.min_specificity, args.min_co,
+                                      args.min_gene_papers, ot_extra)
+
+    if ot_scores:
+        annotate_ot(genes, ot_scores)
+        annotate_ot(all_scored, ot_scores)
+        ot_path = os.path.join(os.path.dirname(out) or ".", "ot_scores.tsv")
+        write_ot_scores(ot_path, ot_scores)
+        log(f"OT overlay: dumped {len(ot_scores)} OT targets -> {ot_path}")
 
     write_tsv(out, genes)
     # sidecar dump of every scored candidate (pre-filter) so the spec_adj

@@ -61,9 +61,9 @@ PubTator3의 **entity 기반 co-occurrence**로 특이도를 잰다(문자열 ti
   산출 코드(z_rel·breadth·hub_penalty·panel·T_emp·4-track)와 `panel_random`·`build_panel_random.py`·
   `tune_weights.py`를 삭제. `fetch_genes.py`는 순수 spec_adj + artifact 감점만 남음(-1179 lines).
   `evals/cdrs_bench.py`는 spec-only 랭킹 벤치로 축소해 회귀 가드로 유지. artifact regex만 생존.
-- **2026-07-07 OT overlay(옵션)**: `--ot-overlay`로 `ot_genetic`·`ot_clinical`(OpenTargets 점수) 표시용
-  컬럼 부착. **랭킹에는 절대 안 들어감**(정렬은 여전히 순수 spec_adj+artifact), 기본 off, 실패해도 빈칸으로
-  넘어가 core run 불변. 질병 keyword만(비질병 입력·network 실패는 빈칸). "DB 근거지 문헌 아님"으로만 참고.
+- **2026-07-07 OT overlay(옵션), 2026-07-13 rescue 확장**: `--ot-overlay`로 `ot_genetic`·`ot_clinical`
+  컬럼을 붙이고, `ot_genetic > 0 OR ot_clinical > 0` target을 exact NCBI Gene mapping 후 scoring 후보에
+  추가. **OT ranking bonus는 없음**(정렬은 여전히 spec_adj+artifact), 실패해도 가능한 후보만 사용하고 통과.
   → 근거: MCP 평가에서 OT가 대체는 아니나 문헌이 놓친 임상 타깃을 건지는 **보완축**임을 측정(§3D).
 
 ---
@@ -179,8 +179,8 @@ fetch 계층 대체는 전부 부적격, 현 스크립트 유지가 정답.**
 
 ## 5. 현재 상태 & 남은 것
 
-**동작 상태**: Phase 1 랭킹 = `spec_adj` + artifact 감점(default). 옵션 `--ot-overlay`로 OT 표시 컬럼
-(랭킹 불변). CDRS 코드는 전부 제거됨. 평가 하니스 = `run_eval.py`(recall@10/@30 + miss 원인 출력;
+**동작 상태**: Phase 1 랭킹 = `spec_adj` + artifact 감점(default). 옵션 `--ot-overlay`로 OT genetic/clinical
+target을 scoring 후보에 rescue하되 OT bonus는 주지 않음. CDRS 코드는 전부 제거됨. 평가 하니스 = `run_eval.py`(recall@10/@30 + miss 원인 출력;
 현재 OT stress test mean recall@30 0.13) + `cdrs_bench.py`(spec 랭킹 회귀) + `candidate_c_bench.py`(OT vs 문헌).
 
 **검증 이력(2026-07-07, 요약 — 상세는 git log·테스트 가드)**:
@@ -242,3 +242,11 @@ loci, lupus TREX1·IRF5·TNFAIP3·TLR7 등 SLE GWAS — 문헌 top-20이 놓친 
 
 **다음 에이전트가 먼저 읽을 것**: `docs/cdrs-eval-findings.md`(왜 CDRS를 접었는가), 이 파일, 그리고
 Phase 1 랭킹을 건드린다면 `scripts/test_fetch_genes.py`(회귀 가드).
+
+## 2026-07-13 OT rescue scoring 결정
+
+- 문제: atopic dermatitis 실사용 run에서 `IL7R`는 OpenTargets `ot_genetic=0.903`이지만 `genes_all_scored.tsv`에 없었다. live PubTator entity count는 `@GENE_3575` total 15,090, `@GENE_3575 AND @DISEASE_Dermatitis_Atopic` 574, `spec_adj≈0.0351`로 문헌 수가 적은 문제가 아니었다.
+- 원인: 기존 `--ot-overlay`는 `genes.tsv`/`genes_all_scored.tsv`에 이미 들어온 gene에 OT 점수를 붙이고 `ot_scores.tsv`를 덤프할 뿐, OT-only target을 PubTator scoring 후보로 rescue하지 않았다.
+- 결정: disease keyword에서 `--ot-overlay`가 켜지면 `ot_genetic > 0 OR ot_clinical > 0`인 모든 OT target을 approved symbol 기준으로 human NCBI Gene ID에 exact mapping한 뒤, PubTator scan cap 밖의 extra candidate로 추가한다.
+- 해석: OT는 ranking bonus가 아니다. 추가된 OT gene도 기존과 동일하게 `@GENE_<id>` denominator, `@GENE_<id> AND <disease entity>` numerator, `spec_adj`, `below_floor`, artifact penalty로만 정렬된다.
+- 기대 효과: `genes_all_scored.tsv`가 “PubTator scan 후보 + OT genetic/clinical rescue 후보”의 전체 score table이 되어, IL7R 같은 DB-supported miss를 top-N 포함 여부와 무관하게 추적할 수 있다.

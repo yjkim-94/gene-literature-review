@@ -58,10 +58,10 @@ After Phase 1, review `output/<slug>/genes.tsv` first. Phase 2 is intentionally 
 | `below_floor` | `true` if `gene_papers` < `--min-gene-papers` (default 10): too little evidence, demoted to the bottom (not deleted). |
 | `artifact` | `true` if the symbol is an immunoglobulin/TCR/HLA structural gene (e.g. IGHE) — a recurrent literature artifact. Its sort score is multiplied by 0.5 (demoted, not deleted); validated no-downside in `docs/cdrs-eval-findings.md`. |
 | `evidence_pmids` | Up to 3 representative PMIDs from the entity co-occurrence query (`;`-joined) — real, verifiable evidence, never fabricated. |
-| `ot_genetic` | OpenTargets `genetic_association` score for the gene–disease pair. Empty unless `--ot-overlay` is passed. **Display only — never affects ranking.** |
-| `ot_clinical` | OpenTargets `clinical` (known-drug) score. Empty unless `--ot-overlay`. Display only. |
+| `ot_genetic` | OpenTargets `genetic_association` score for the gene–disease pair. Empty unless `--ot-overlay` is passed. |
+| `ot_clinical` | OpenTargets `clinical` (known-drug) score. Empty unless `--ot-overlay`. |
 
-Rows are sorted by `spec_adj` descending, after the 0.5× artifact demotion is applied to the sort score. The `ot_*` columns are a **DB cross-reference, not literature evidence** — the optional `--ot-overlay` flag annotates each gene with OpenTargets genetic/clinical scores (disease keywords only; empty for non-disease terms or on lookup failure, and it never touches the ranking). Its measured value is complementary, not a replacement — see `docs/mcp-eval-plan.md`.
+Rows are sorted by `spec_adj` descending, after the 0.5× artifact demotion is applied to the sort score. The `ot_*` columns are a **DB cross-reference, not literature evidence** — the optional `--ot-overlay` flag annotates each gene with OpenTargets genetic/clinical scores and adds all OT genetic/clinical targets as scoring candidates after exact NCBI Gene ID mapping. It does not add an OT ranking bonus; final order is still `spec_adj` + artifact demotion. Its measured value is complementary, not a replacement — see `docs/mcp-eval-plan.md`.
 
 The script also writes a sidecar `genes_all_scored.tsv` (same columns) holding **every scored candidate before the `min_co`/`min_specificity` filter**, so the `spec_adj` cutoff can be judged against the full distribution instead of guessed.
 

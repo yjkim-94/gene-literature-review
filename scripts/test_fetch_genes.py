@@ -156,6 +156,138 @@ def test_annotate_ot_rounds_matches_and_leaves_unmatched_empty():
     assert rows[2].get("ot_clinical", "") == ""
 
 
+def test_ot_candidates_keep_exact_human_symbol_only():
+    calls = []
+
+    def fake_exact(symbol, organism):
+        calls.append((symbol, organism))
+        if symbol == "IL7R":
+            return "3575", {"name": "IL7R", "organism": {"scientificname": organism}}
+        if symbol == "BAD":
+            raise SystemExit("network failure: mock")
+        return None
+
+    old = fetch_genes.exact_symbol_gene
+    old_sleep = fetch_genes.time.sleep
+    fetch_genes.exact_symbol_gene = fake_exact
+    fetch_genes.time.sleep = lambda _: None
+    try:
+        rows = fetch_genes.ot_candidates(
+            {
+                "NOPE": {"genetic": 0.1, "clinical": 0.0},
+                "IL7R": {"genetic": 0.9, "clinical": 0.0},
+                "BAD": {"genetic": 0.2, "clinical": 0.0},
+            },
+            "Homo sapiens",
+        )
+    finally:
+        fetch_genes.exact_symbol_gene = old
+        fetch_genes.time.sleep = old_sleep
+
+    assert rows == [("3575", {"name": "IL7R", "organism": {"scientificname": "Homo sapiens"}})]
+    assert calls[0] == ("BAD", "Homo sapiens")
+    assert ("BAD", "Homo sapiens") in calls
+
+
+def test_resolve_human_scores_ot_extra_then_cuts_by_filter():
+    # An OT extra outside the scan pool IS scored, but is then subject to the
+    # SAME min_co/min_spec filter as every other gene (option A: no bypass).
+    cnt = {"1": 10}
+    scan_rec = {"name": "SCAN", "description": "scan gene",
+                "organism": {"scientificname": "Homo sapiens"}}
+    ot_rec = {"name": "IL7R", "description": "interleukin 7 receptor",
+              "organism": {"scientificname": "Homo sapiens"}}
+
+    old_pick = fetch_genes.pick_candidates
+    old_count = fetch_genes._pubtator_count
+    fetch_genes.pick_candidates = lambda _cnt, _want, _pool: [("1", scan_rec)]
+
+    def fake_count(query):
+        if query in ('"@GENE_1"', '"@GENE_3575"'):
+            return 100, []       # both have entity papers
+        if query.startswith('"@GENE_1" AND '):
+            return 20, ["111"]   # SCAN co-occurs -> passes min_co
+        return 0, []             # IL7R co-query -> 0, below min_co
+
+    fetch_genes._pubtator_count = fake_count
+    try:
+        genes, all_scored = fetch_genes.resolve_human(
+            cnt,
+            "atopic dermatitis",
+            "@DISEASE_Dermatitis_Atopic",
+            "human",
+            5,
+            0.0,
+            1,
+            10,
+            [("3575", ot_rec)],
+        )
+    finally:
+        fetch_genes.pick_candidates = old_pick
+        fetch_genes._pubtator_count = old_count
+
+    # scored despite not being in the scan cnt
+    assert {row["symbol"] for row in all_scored} == {"SCAN", "IL7R"}
+    # but cut by the normal filter (IL7R co=0 < min_co=1) -- not force-kept
+    assert {row["symbol"] for row in genes} == {"SCAN"}
+    il7r = next(row for row in all_scored if row["symbol"] == "IL7R")
+    assert il7r["co_papers"] == 0
+    assert il7r["gene_papers"] == 100
+
+
+def test_ot_extra_zero_denominator_is_dropped():
+    # An OT extra with no entity papers at all (total==0) is dropped like any
+    # other zero-denominator candidate -- not kept as a zero-score row.
+    ot_rec = {"name": "ZERO", "description": "zero denominator",
+              "organism": {"scientificname": "Homo sapiens"}}
+
+    old_pick = fetch_genes.pick_candidates
+    old_count = fetch_genes._pubtator_count
+    fetch_genes.pick_candidates = lambda _cnt, _want, _pool: []
+    fetch_genes._pubtator_count = lambda _query: (0, [])
+    try:
+        genes, all_scored = fetch_genes.resolve_human(
+            {},
+            "atopic dermatitis",
+            "@DISEASE_Dermatitis_Atopic",
+            "human",
+            1,
+            0.0,
+            1,
+            10,
+            [("999", ot_rec)],
+        )
+    finally:
+        fetch_genes.pick_candidates = old_pick
+        fetch_genes._pubtator_count = old_count
+
+    assert genes == []
+    assert all_scored == []
+
+
+def test_ot_tie_order_uses_symbol_not_ot_score():
+    old_exact = fetch_genes.exact_symbol_gene
+    old_sleep = fetch_genes.time.sleep
+    fetch_genes.exact_symbol_gene = lambda symbol, organism: (
+        symbol,
+        {"name": symbol, "organism": {"scientificname": organism}},
+    )
+    fetch_genes.time.sleep = lambda _: None
+    try:
+        rows = fetch_genes.ot_candidates(
+            {
+                "A_LOW": {"genetic": 0.1, "clinical": 0.0},
+                "Z_HIGH": {"genetic": 0.9, "clinical": 0.0},
+            },
+            "Homo sapiens",
+        )
+    finally:
+        fetch_genes.exact_symbol_gene = old_exact
+        fetch_genes.time.sleep = old_sleep
+
+    assert [gid for gid, _ in rows] == ["A_LOW", "Z_HIGH"]
+
+
 if __name__ == "__main__":
     test_tiny_n_artifact_ranks_below_core_gene()
     test_specific_but_less_studied_core_gene_stays_on_top()
@@ -168,4 +300,8 @@ if __name__ == "__main__":
     test_wilson_lower_bounds_and_degenerate()
     test_spec_tsv_columns_include_artifact_without_cdrs()
     test_annotate_ot_rounds_matches_and_leaves_unmatched_empty()
+    test_ot_candidates_keep_exact_human_symbol_only()
+    test_resolve_human_scores_ot_extra_then_cuts_by_filter()
+    test_ot_extra_zero_denominator_is_dropped()
+    test_ot_tie_order_uses_symbol_not_ot_score()
     print("ok: floor + wilson_lower demote tiny-n artifacts, keep specific core genes on top")
