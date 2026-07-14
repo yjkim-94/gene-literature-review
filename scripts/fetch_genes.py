@@ -47,6 +47,7 @@ import os
 import re
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -86,14 +87,19 @@ def slug(keyword):
 
 
 def _get(url):
-    # 6 tries with growing backoff: a single transient blip on the first call
-    # otherwise throws away hundreds of already-scored candidates.
-    for attempt in range(6):
+    # 10 tries, exponential backoff: PubTator throws intermittent 429/502 under
+    # our own concurrent load (measured -- bursts of a dozen+ in a row), so a
+    # short linear backoff can expire entirely inside one bad patch and throw
+    # away hundreds of already-scored candidates. Honor Retry-After on 429.
+    for attempt in range(10):
         try:
             with urllib.request.urlopen(url, timeout=90) as r:
                 return r.read().decode()
+        except urllib.error.HTTPError as e:
+            wait = e.headers.get("Retry-After") if e.code == 429 else None
+            time.sleep(float(wait) if wait else min(2 ** attempt, 30))
         except Exception:
-            time.sleep(1.5 * (attempt + 1))
+            time.sleep(min(2 ** attempt, 30))
     raise SystemExit(f"network failure: {url}")
 
 
@@ -264,6 +270,20 @@ def rank_and_floor(rows, min_gene_papers):
     return rows
 
 
+def is_nongene_record(rec):
+    """True for esummary records that are not real genes: obsolete oncogene
+    stubs, QTL/phenotype loci, and PubTator symbol-collision mistags (e.g. SEA
+    -> Staphylococcal Enterotoxin A on gene_id 6395). These share a signature --
+    NO genomic coordinates AND NO RefSeq summary -- while every real
+    protein/RNA gene has at least one. Both empty required (AND, not OR): a real
+    gene lacking a curated summary still has genomicinfo, so OR would over-drop.
+    Organism-agnostic: these fields exist for any species' esummary record.
+    Validated on the atopic-dermatitis run -- caught SEA/IGES/ST2 and 7 more
+    loci with zero false drops (FLG/IL13/TSLP/ACTL9 all retained). geneweight is
+    NOT used: real genes can score low (ACTL9=476)."""
+    return not rec.get("genomicinfo") and not rec.get("summary")
+
+
 def pick_candidates(cnt, want, pool):
     """Walk candidates in co-mention order, keep organism-matching ones up to pool.
 
@@ -274,6 +294,7 @@ def pick_candidates(cnt, want, pool):
     """
     cands = [g for g, _ in cnt.most_common()]
     picked = []
+    dropped_nongene = 0
     for i in range(0, len(cands), 100):
         batch = cands[i:i + 100]
         ids = ",".join(batch)
@@ -284,10 +305,19 @@ def pick_candidates(cnt, want, pool):
                 continue
             if not rec.get("name"):
                 continue
+            if is_nongene_record(rec):
+                dropped_nongene += 1
+                continue
             picked.append((gid, rec))
             if len(picked) >= pool:
+                if dropped_nongene:
+                    log(f"dropped {dropped_nongene} non-gene records "
+                        f"(obsolete/QTL locus/collision)")
                 return picked
         time.sleep(0.34)
+    if dropped_nongene:
+        log(f"dropped {dropped_nongene} non-gene records "
+            f"(obsolete/QTL locus/collision)")
     return picked
 
 

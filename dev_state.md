@@ -1,7 +1,7 @@
 # gene-literature-review — 개발 상태 (dev_state)
 
 > 목적: 이 프로젝트가 **무엇을·왜·어떻게** 만들어졌는지, 그리고 **무엇을 시도했다 접었는지**를 한 곳에 정리.
-> 사람과 다른 에이전트가 맥락을 빠르게 잡는 용도. 최종 갱신: 2026-07-13 (Phase 4 결정적 조립 스크립트 integrate_review.py 추가, add_pmid_links.py를 근거표 PMID 기반으로 전환; fetch_genes.py가 run_config.json으로 사용 옵션 기록).
+> 사람과 다른 에이전트가 맥락을 빠르게 잡는 용도. 최종 갱신: 2026-07-14 (fetch_genes.py 2건 수정: PubTator 429/502 지수 백오프, esummary genomicinfo/summary 빈 값 기반 비유전자 필터 — 실사용 중 발견).
 >
 > 세부 근거 문서: `docs/cdrs-eval-findings.md`(CDRS 기각), `docs/mcp-eval-plan.md`(MCP 대체 평가).
 
@@ -252,3 +252,26 @@ Phase 1 랭킹을 건드린다면 `scripts/test_fetch_genes.py`(회귀 가드).
 - 결정: disease keyword에서 `--ot-overlay`가 켜지면 `ot_genetic > 0 OR ot_clinical > 0`인 모든 OT target을 approved symbol 기준으로 human NCBI Gene ID에 exact mapping한 뒤, PubTator scan cap 밖의 extra candidate로 추가한다.
 - 해석: OT는 ranking bonus가 아니다. 추가된 OT gene도 기존과 동일하게 `@GENE_<id>` denominator, `@GENE_<id> AND <disease entity>` numerator, `spec_adj`, `below_floor`, artifact penalty로만 정렬된다.
 - 기대 효과: `genes_all_scored.tsv`가 “PubTator scan 후보 + OT genetic/clinical rescue 후보”의 전체 score table이 되어, IL7R 같은 DB-supported miss를 top-N 포함 여부와 무관하게 추적할 수 있다.
+
+## 2026-07-14 실사용 중 발견한 `fetch_genes.py` 버그 2건 수정
+
+atopic dermatitis 재run(`--max 500`, scan 30,000, human, `--ot-overlay`) 중 발견·수정. **두 건 모두 skill 설치본과 dev repo 양쪽 byte-identical 동기화, `test_fetch_genes.py` 통과. dev git엔 modified 상태(커밋/푸시 안 함).**
+
+### (버그 1) `_get` 재시도가 PubTator 자체 부하 429/502를 못 견딤
+- 증상: Phase 1이 scan/scoring 도중 `network failure`로 5번 연속 죽음(page 61~63, 후보 30번째 등 지점 다양). 10분 cooldown 후에도 재현. curl 단건은 정상 → 서버 다운 아님.
+- 진단: PubTator3가 **우리 자신의 3-worker 동시요청**에 간헐적 429/502를 연속 십수 개 burst로 반환. 기존 6회 선형 백오프(`1.5*(n+1)`, 총 ~31.5s)로는 bad patch 안에서 전부 소진.
+- 수정: `_get` → **10회 지수 백오프 + 429 시 `Retry-After` 헤더 우선**. `import urllib.error` 명시(side-effect import 의존 제거).
+- 교훈: rate-limit은 외부 요인만이 아니라 **자기 자신의 병렬성**이 원인일 수 있다. MAX_WORKERS=3은 유지하되 백오프가 burst를 흡수하도록 설계.
+
+### (버그 2) PubTator NER 오태깅으로 비유전자가 gene 목록에 유입
+- 증상: 컷오프 경계 검토 중 `SEA`(spec_adj 0.0502) 문헌이 전부 **Staphylococcal Enterotoxin A**(세균 외독소, 인간 단백질도 아님). PubTator가 문자열 "sea"를 obsolete `@GENE_6395`로 오태깅 → entity 기반 검색으로도 안 걸러짐(**소스 NER 자체 오염**, 우리 string collision 아님).
+- 전수 검증(`02.verify_gene_records.py`, analysis 폴더): `genes_all_scored.tsv` 1,880개 esummary 배치 조회. **판정 신호 = `genomicinfo`와 `summary`가 둘 다 빈 값**(obsolete stub·QTL/phenotype locus·collision 공통 시그니처). 초기 `type_of_gene` 가설은 오판(esummary v0.3에 없는 필드). `geneweight`는 실유전자도 낮아(ACTL9=476) 부적합.
+- 결과: 10개 검출(SEA/IGES/ST2 + CORD1/LAP/ATHS/VIS1/FCP1/SCFV/ST8). 통계 컷오프까지 통과해 최종 목록에 든 3개(SEA·IGES=IgE QTL locus·ST2=IL1RL1 폐기 중복)만 실제 오염. 나머지 7개는 이미 컷오프 미달.
+- 수정: `is_nongene_record(rec)` 신규(둘 다 empty면 True — **AND 조건**, 좌표만 있고 summary 없는 실유전자 over-drop 방지) + `pick_candidates`의 organism 필터 단계에 적용(스코어링 **전** 제거 → PubTator 2-call 비용도 절약). drop 수는 로그 표기.
+- **종 무관 검증 완료**: `genomicinfo`/`summary`는 organism-independent. 실측 — mouse/rat 정상 유전자(Flg/Il13/Tslp/Apoe 등) 전부 keep, mouse QTL locus `Laq1`(109531/16793)은 human SEA와 동일 시그니처로 DROP.
+- test: `test_nongene_records_dropped_real_genes_kept()` 추가(네트워크 불필요, SEA/IGES/ST2 형태 drop + FLG/ACTL9/좌표-only keep).
+- 교훈: NER 소스가 틀리면 entity 쿼리로도 못 막는다. **downstream에서 esummary 구조 신호(genomic 좌표·RefSeq summary 부재)로 방어**하는 게 확실. 단일 케이스로 필터 만들지 말고 전수 검증 후 시그니처 확정(§4 교훈 #2 적용).
+
+### 곁가지 수정(이번 run 산출물 정합)
+- `integrate_review.py`: 요약표 "키워드 연관성" 칼럼이 항상 "요약 없음"이었음 — `make_phase3_batches.py`가 쓰는 라벨("키워드와의 연결성")과 `RELATION_RE`가 찾던 라벨("연관성") 불일치. 정규식을 복수 라벨 매칭으로 수정.
+- Phase 3 CD207 요약에서 수집 파일에 없는 PMID(39849992) 인용 환각 1건 → `verify_citations.py`가 orphan으로 정확히 검출(gate 정상 작동 실증), 실제 파일 내 PMID로 교체 후 orphan 0.

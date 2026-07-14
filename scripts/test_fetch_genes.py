@@ -288,6 +288,27 @@ def test_ot_tie_order_uses_symbol_not_ot_score():
     assert [gid for gid, _ in rows] == ["A_LOW", "Z_HIGH"]
 
 
+def test_nongene_records_dropped_real_genes_kept():
+    # Non-gene records (obsolete stub / QTL locus / PubTator collision) have
+    # NO genomicinfo AND NO summary -- the exact shape esummary returned for
+    # SEA(6395)/IGES(3478)/ST2(6761) on the atopic-dermatitis run.
+    for name in ("S13 erythroblastosis (avian) oncogene homolog",
+                 "immunoglobulin E concentration, serum",
+                 "suppression of tumorigenicity 2"):
+        rec = {"name": name, "genomicinfo": [], "summary": ""}
+        assert fetch_genes.is_nongene_record(rec), name
+    # Real genes have at least one of the two. ACTL9 scores low (geneweight
+    # 476) yet is a real gene -- must be kept, so geneweight is not a criterion.
+    real = [
+        {"name": "FLG", "genomicinfo": [{"chrloc": "1"}], "summary": "filaggrin ..."},
+        {"name": "ACTL9", "genomicinfo": [{"chrloc": "19"}], "summary": "Involved in ..."},
+        # coordinates present but summary missing -> still a real gene (AND guard)
+        {"name": "NEWGENE", "genomicinfo": [{"chrloc": "7"}], "summary": ""},
+    ]
+    for rec in real:
+        assert not fetch_genes.is_nongene_record(rec), rec["name"]
+
+
 if __name__ == "__main__":
     test_tiny_n_artifact_ranks_below_core_gene()
     test_specific_but_less_studied_core_gene_stays_on_top()
@@ -304,4 +325,5 @@ if __name__ == "__main__":
     test_resolve_human_scores_ot_extra_then_cuts_by_filter()
     test_ot_extra_zero_denominator_is_dropped()
     test_ot_tie_order_uses_symbol_not_ot_score()
+    test_nongene_records_dropped_real_genes_kept()
     print("ok: floor + wilson_lower demote tiny-n artifacts, keep specific core genes on top")
