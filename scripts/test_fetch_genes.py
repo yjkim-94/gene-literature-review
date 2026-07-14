@@ -235,6 +235,36 @@ def test_resolve_human_scores_ot_extra_then_cuts_by_filter():
     assert il7r["gene_papers"] == 100
 
 
+def test_spec_adj_is_sort_only_low_spec_high_co_survives():
+    # New contract: spec_adj is a SORT key, not a filter. A pleiotropy-suppressed
+    # gene (co=15, total=10000 -> spec_adj ~0.0009, far below the old 0.05 cut)
+    # must SURVIVE when min_spec=0.0 (default) as long as co >= min_co. This is
+    # the SPINK5/PDE4B/AHR false-negative fix.
+    rec = {"name": "PLEIO", "description": "pleiotropic gene",
+           "organism": {"scientificname": "Homo sapiens"}}
+    old_pick = fetch_genes.pick_candidates
+    old_count = fetch_genes._pubtator_count
+    fetch_genes.pick_candidates = lambda _cnt, _want, _pool: [("1", rec)]
+
+    def fake_count(query):
+        if query.startswith('"@GENE_1" AND '):
+            return 15, ["222"]   # co=15 >= min_co=10
+        return 10000, []          # huge denominator -> tiny spec_adj
+    fetch_genes._pubtator_count = fake_count
+    try:
+        genes, all_scored = fetch_genes.resolve_human(
+            {"1": 15}, "atopic dermatitis", "@DISEASE_Dermatitis_Atopic",
+            "human", 5, 0.0, 10, 10, None,
+        )
+    finally:
+        fetch_genes.pick_candidates = old_pick
+        fetch_genes._pubtator_count = old_count
+
+    row = next(r for r in genes if r["symbol"] == "PLEIO")
+    assert row["spec_adj"] < 0.05          # would have been cut by the old filter
+    assert row["co_papers"] == 15          # but survives on min_co alone
+
+
 def test_ot_extra_zero_denominator_is_dropped():
     # An OT extra with no entity papers at all (total==0) is dropped like any
     # other zero-denominator candidate -- not kept as a zero-score row.
@@ -326,4 +356,5 @@ if __name__ == "__main__":
     test_ot_extra_zero_denominator_is_dropped()
     test_ot_tie_order_uses_symbol_not_ot_score()
     test_nongene_records_dropped_real_genes_kept()
+    test_spec_adj_is_sort_only_low_spec_high_co_survives()
     print("ok: floor + wilson_lower demote tiny-n artifacts, keep specific core genes on top")

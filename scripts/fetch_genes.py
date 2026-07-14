@@ -29,8 +29,11 @@ Writes a tab-separated table (symbol, gene_id, name, co_papers, gene_papers,
 specificity, spec_adj, below_floor, artifact, evidence_pmids, ot_genetic,
 ot_clinical) to --out -- opens
 cleanly in Excel. evidence_pmids is ";"-joined. A sidecar <out>_all_scored.tsv holds
-every scored candidate BEFORE the min_co/min_specificity filter, so the cutoff
-can be set from the real spec_adj distribution instead of guessed.
+every scored candidate BEFORE the min_co filter, so the ranking can be inspected
+against the full spec_adj distribution. The gate is min_co (objective literature-
+support floor) + top-N by spec_adj; spec_adj is a SORT key, not a threshold cut
+(--min-specificity defaults to 0.0 = off), because a fixed ratio cutoff is not
+objective across keywords/scan sizes and clips specific-but-pleiotropic genes.
 
 --out defaults to output/<keyword-slug>/genes.tsv, a per-keyword run dir that
 holds every artifact of the run (genes.tsv, genes_all_scored.tsv, lit/,
@@ -375,9 +378,11 @@ def resolve_human(cnt, keyword, entity, organism, max_genes, min_spec, min_co,
     counts -- NOT tiab strings. Entity matching means a common-word symbol (CAT,
     REST, SET) resolves to its gene, not the English word, so it can't be
     inflated by unrelated text. Genes are ranked by the Wilson lower bound of
-    that proportion with a keyword-relative paper-count floor (min_spec applies
-    to the lower bound, min_co guards degenerate tiny counts). See DESIGN.md
-    (설계 C/D/E).
+    that proportion (spec_adj); the gate is min_co (objective literature-support
+    floor) plus the top-N cut, NOT spec_adj -- min_spec defaults to 0.0 (off) so
+    spec_adj is sort-only. A fixed ratio cutoff is not objective across keywords/
+    scan sizes and clips specific-but-pleiotropic genes (SPINK5/PDE4B/AHR). See
+    DESIGN.md (설계 C/D/E).
 
     Only the top SCORE_MULTIPLE * max_genes organism-matching candidates (by
     co-mention) are scored -- the co-mention prefilter both bounds the dominant
@@ -426,11 +431,17 @@ def resolve_human(cnt, keyword, entity, organism, max_genes, min_spec, min_co,
                 continue
             co = row["co_papers"]
             all_scored.append(row)
+            # Gate = min_co (objective literature-support floor) only. spec_adj is
+            # NOT a filter here -- it ranks (rank_and_floor below) and the top-N
+            # cut is `[:max_genes]`. min_spec defaults to 0.0 (off); a fixed ratio
+            # cutoff isn't objective across keywords and clips specific-but-
+            # pleiotropic genes. Keep the knob for callers who opt into a cut.
             if co < min_co or lower < min_spec:
                 continue
             rows.append(row)
     log(f"scored {len(all_scored)} · dropped {n_zero} (no papers) · "
-        f"passed filter {len(rows)} (min_co={min_co}, min_spec={min_spec})")
+        f"passed filter {len(rows)} (min_co={min_co}, min_spec={min_spec}, "
+        f"then top-{max_genes} by spec_adj)")
     return rank_and_floor(rows, min_gene_papers)[:max_genes], rank_and_floor(all_scored, min_gene_papers)
 
 
@@ -494,10 +505,16 @@ def main():
                     help="target gene count; also caps scoring at 5x this (SCORE_MULTIPLE)")
     ap.add_argument("--scan", type=int, default=60,
                     help="how many keyword papers to scan for candidate genes")
-    ap.add_argument("--min-specificity", type=float, default=0.05,
-                    help="drop genes whose specificity LOWER BOUND is below this")
-    ap.add_argument("--min-co", type=int, default=5,
-                    help="require at least this many keyword+gene co-occurrence papers")
+    ap.add_argument("--min-specificity", type=float, default=0.0,
+                    help="OPTIONAL spec_adj lower-bound cut; default 0.0 = OFF "
+                         "(spec_adj is sort-only). A fixed ratio cutoff is not "
+                         "objective across keywords/scan sizes and clips specific "
+                         "but pleiotropy-suppressed genes (SPINK5/PDE4B/AHR), so "
+                         "the gate is min_co + top-N by spec_adj, not this.")
+    ap.add_argument("--min-co", type=int, default=10,
+                    help="require at least this many keyword+gene co-occurrence "
+                         "papers -- the objective literature-support floor "
+                         "(absolute count, keyword/scan-robust)")
     ap.add_argument("--min-gene-papers", type=int, default=10,
                     help="demote genes with fewer than this many total papers (artifact floor)")
     ap.add_argument("--out", help="output TSV path; default output/<keyword-slug>/genes.tsv")
