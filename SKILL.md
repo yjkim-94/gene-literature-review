@@ -112,7 +112,7 @@ Large-request / list-centric mode ends at the `Phase 1 · 결과` block (Phases 
 
 **First, route by request type:**
 
-- **User supplied a gene list directly** ("do a literature review on geneA, geneB, geneC"): skip this phase. Write the given symbols into a one-column TSV with a `symbol` header at `output/manual/genes.tsv` and go to Phase 2. If there is no keyword, omit `--keyword` in fetch_pubmed to get **general gene literature** (representative papers for the gene itself, not keyword-specific association).
+- **User supplied a gene list directly**: Mode B (see top) — skip this phase.
 - **Keyword only** ("summarize genes related to atopy"): proceed below.
 - **Large request (hundreds–1000)** ("1000 genes for atopy"): **list-centric mode** — see "Large requests" below.
 
@@ -233,6 +233,8 @@ Summarize each gene from its `output/<slug>/lit/<symbol>.json`. **Apply the exac
 Read one gene file at a time and summarize with the template below. After processing a gene, do not reference its raw text again.
 
 ### 10 or more genes: subagent fan-out (even batch split)
+
+**Ask before spawning.** State the agent count and the estimated token cost (formula below) and wait for approval — the user's standing rule requires approval for every subagent launch. If declined, run the sequential path above instead.
 
 Set the batch size and subagent count from the gene count `N`:
 
