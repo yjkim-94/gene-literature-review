@@ -1,6 +1,6 @@
 # gene-literature-review — 프로젝트 지침
 
-이 파일은 `CLAUDE.md`의 프로젝트 지침을 Codex/agent 환경에서 동일하게 적용하기 위한 파일이다.
+프로젝트 지침의 원본은 이 파일이다. `CLAUDE.md`는 `@AGENTS.md`로 이 파일을 import하므로 Claude Code와 Codex/agent가 같은 지침을 읽는다 — 지침은 여기만 고친다.
 
 ## 개발 후 마무리 루틴 (필수)
 
@@ -17,7 +17,7 @@
 
 ### 2. 커밋·푸시
 이번 작업에서 바꾼 파일만 `git add <파일>`로 staging → 커밋 → **원격 push까지**. (`git add -A` 금지 — 다른 작업의 미커밋 변경이 섞인다.) (이 repo에서 "커밋"은 항상 push 포함.)
-커밋 메시지 끝에 `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`.
+커밋 메시지 끝에 **이번 작업을 실제로 한 모델** 이름으로 `Co-Authored-By: <모델 이름> <noreply@anthropic.com>`(예: `Claude Opus 5.5`). 모델 이름을 이 파일에 고정하지 않는다 — 모델이 바뀌면 낡는다.
 
 ### 3. worknote 갱신
 `worknote_YYMMDD.md`(오늘 날짜)를 기존 형식(목적·대상 데이터·작업 절차·주요 설정·출력 결과)으로 작성/갱신.
