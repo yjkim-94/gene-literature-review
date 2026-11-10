@@ -339,7 +339,25 @@ def test_nongene_records_dropped_real_genes_kept():
         assert not fetch_genes.is_nongene_record(rec), rec["name"]
 
 
+def test_network_failure_message_hides_api_key():
+    orig_urlopen, orig_sleep = fetch_genes.urllib.request.urlopen, fetch_genes.time.sleep
+
+    def fail(*_args, **_kwargs):
+        raise OSError("down")
+
+    fetch_genes.urllib.request.urlopen, fetch_genes.time.sleep = fail, lambda _seconds: None
+    try:
+        fetch_genes._get("https://x/efetch.fcgi?db=pubmed&api_key=SECRET123&id=1")
+    except SystemExit as exc:
+        assert "SECRET123" not in str(exc) and "api_key=***" in str(exc), str(exc)
+    else:
+        raise AssertionError("final failure must raise SystemExit")
+    finally:
+        fetch_genes.urllib.request.urlopen, fetch_genes.time.sleep = orig_urlopen, orig_sleep
+
+
 if __name__ == "__main__":
+    test_network_failure_message_hides_api_key()
     test_tiny_n_artifact_ranks_below_core_gene()
     test_specific_but_less_studied_core_gene_stays_on_top()
     test_below_floor_genes_kept_not_deleted()

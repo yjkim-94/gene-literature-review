@@ -181,7 +181,23 @@ def test_require_confirmation():
         assert require_confirmation(genes_path) is None
 
 
+def test_network_failure_message_hides_api_key():
+    orig_urlopen, orig_sleep = fetch_pubmed.urllib.request.urlopen, fetch_pubmed.time.sleep
+    def fail(*_a, **_k):
+        raise OSError("down")
+    fetch_pubmed.urllib.request.urlopen, fetch_pubmed.time.sleep = fail, lambda _s: None
+    try:
+        fetch_pubmed._get("https://x/efetch.fcgi?db=pubmed&api_key=SECRET123&id=1")
+    except SystemExit as e:
+        assert "SECRET123" not in str(e) and "api_key=***" in str(e), str(e)
+    else:
+        raise AssertionError("final failure must raise SystemExit")
+    finally:
+        fetch_pubmed.urllib.request.urlopen, fetch_pubmed.time.sleep = orig_urlopen, orig_sleep
+
+
 if __name__ == "__main__":
+    test_network_failure_message_hides_api_key()
     test_inline_markup_text_not_dropped()
     test_empty_and_missing()
     test_retracted_publication_flagged()

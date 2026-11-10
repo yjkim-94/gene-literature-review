@@ -103,7 +103,8 @@ def _get(url):
             time.sleep(float(wait) if wait else min(2 ** attempt, 30))
         except Exception:
             time.sleep(min(2 ** attempt, 30))
-    raise SystemExit(f"network failure: {url}")
+    # WHY: the URL carries NCBI_API_KEY; ot_candidates() also writes this message into the runlog file.
+    raise SystemExit("network failure: " + re.sub(r"api_key=[^&]+", "api_key=***", url))
 
 
 def _key():

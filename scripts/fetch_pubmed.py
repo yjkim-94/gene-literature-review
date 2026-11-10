@@ -10,6 +10,7 @@ import argparse
 import csv
 import json
 import os
+import re
 import time
 import urllib.parse
 import urllib.request
@@ -23,15 +24,16 @@ PUBTATOR = "https://www.ncbi.nlm.nih.gov/research/pubtator3-api"
 
 
 def _get(url):
-    # 6 tries with growing backoff: a transient blip shouldn't lose a gene's
-    # whole abstract fetch (matches fetch_genes.py's retry policy).
+    # 6 tries with linear backoff: a transient blip shouldn't lose a gene's
+    # whole abstract fetch (fetch_genes.py uses 10 tries with exponential backoff).
     for attempt in range(6):
         try:
             with urllib.request.urlopen(url, timeout=60) as r:
                 return r.read().decode()
         except Exception:
             time.sleep(1.5 * (attempt + 1))
-    raise SystemExit(f"network failure: {url}")
+    # WHY: the URL carries NCBI_API_KEY; the message reaches stderr and the agent transcript.
+    raise SystemExit("network failure: " + re.sub(r"api_key=[^&]+", "api_key=***", url))
 
 
 def _key():

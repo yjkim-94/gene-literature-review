@@ -40,6 +40,10 @@ python scripts/fetch_genes.py --keyword "atopic dermatitis" --entity "@DISEASE_D
 ```
 Output is a tab-separated TSV (opens directly in Excel). `--entity` is optional - omit it for novel terms with no MeSH entity (free-text fallback); `--ot-overlay` applies to disease keywords. `--out` overrides the default run-dir path.
 
+For a user-provided gene list, run `integrate_review.py --mode gene-list`; its method section records the supplied list rather than keyword-based discovery.
+
+`verify_citations.py` also fails a gene section with collected papers but no citation, or with `관련 문헌 없음` despite collected papers.
+
 Each phase also writes a live progress log into the run dir — `phase1_fetch_genes.log` (SCAN/FILTER/SCORE/RESULT) and, once you run `fetch_pubmed.py`, `phase2_fetch_pubmed.log` (COLLECT/RESULT). Both use a section-header + timestamped-line format and flush per line, so a running phase is watchable with `tail -f output/<slug>/phase1_fetch_genes.log`.
 
 After Phase 1, review `output/<slug>/genes.tsv` first. Phase 2 is intentionally stopped until the user approves the list and `output/<slug>/genes.confirmed` contains `OK`.

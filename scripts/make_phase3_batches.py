@@ -18,14 +18,14 @@ Return the filled template blocks concatenated in the same order as this batch.
 ### <SYMBOL> - <full gene name>
 - **{summary_label}**: 2-3 sentences. End each claim with its evidence PMID in [PMID:xxxxxxxx] format.
 - **주요 발견**: 2-4 bullets. Every bullet must cite a PMID.
-- **근거 논문**: table | PMID | 연도 | 접근성 | 한 줄 요약 |. For the PMID cell, use the file's "url" to build a clickable link [xxxxxxxx](https://pubmed.ncbi.nlm.nih.gov/xxxxxxxx/).
+- **근거 논문**: table | PMID | 연도 | 접근수준 | 한 줄 요지 |. For the PMID cell, use the file's "url" to build a clickable link [xxxxxxxx](https://pubmed.ncbi.nlm.nih.gov/xxxxxxxx/).
 - **근거 논문 전체 보기**: @@PMIDLINK@@
 
 Rules:
 - Cite ONLY PMIDs that exist in the file. Never invent a PMID or a finding.
-- If a paper's "retracted" is true, mark 철회 in its 접근성 cell and do NOT use it in {summary_label} or 주요 발견.
+- If a paper's "retracted" is true, mark 철회 in its 접근수준 cell and do NOT use it in {summary_label} or 주요 발견.
 - If a claim is from an abstract-only paper, that is fine; the access column records it.
-- If the file has no papers, write "관련 문헌 없음" and stop.
+- If the file has no papers, keep the `### <SYMBOL> - <full gene name>` header line, write "관련 문헌 없음" under it, and stop.
 - Return only the filled templates, nothing else.
 """
 
@@ -59,7 +59,7 @@ def clean_old_batches(out_dir):
             path.unlink()
 
 
-def write_batches(genes_tsv, out_dir=None, batch_size=30, summary_label="키워드와의 연결성"):
+def write_batches(genes_tsv, out_dir=None, batch_size=30, summary_label="키워드와의 연관성"):
     genes_tsv = Path(genes_tsv)
     out_dir = Path(out_dir) if out_dir else genes_tsv.parent / "phase3_batches"
     lit_dir = genes_tsv.parent / "lit"
@@ -94,7 +94,7 @@ def main():
 
     if args.batch_size < 1:
         raise SystemExit("--batch-size must be >= 1")
-    label = "통합 문헌 요약" if args.general_literature else "키워드와의 연결성"
+    label = "핵심 문헌 요지" if args.general_literature else "키워드와의 연관성"
     batches, out_dir = write_batches(args.genes, args.out_dir, args.batch_size, label)
     sizes = "/".join(str(len(batch)) for batch in batches)
     print(f"wrote {len(batches)} batch(es) [{sizes}] to {out_dir}")

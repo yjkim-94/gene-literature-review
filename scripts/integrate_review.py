@@ -15,11 +15,15 @@ import re
 import subprocess
 import sys
 import tempfile
+from contextlib import redirect_stderr
 from datetime import datetime
+from io import StringIO
 
 
 HEADER_RE = re.compile(r"^###\s+(\S+)")
-RELATION_RE = re.compile(r"\*\*키워드와의 연관성\*\*:\s*(.+)")
+RELATION_RE = re.compile(
+    r"\*\*(?:키워드와의 연관성|키워드와의 연결성|핵심 문헌 요지|통합 문헌 요약)\*\*:[ \t]*(.+)"
+)
 PMID_RE = re.compile(r"\s*\[PMID:\d+\]")
 
 
@@ -48,7 +52,7 @@ def read_summaries(summary_dir):
 
 def first_relation(summary_text, symbol):
     pattern = re.compile(
-        rf"^###\s+{re.escape(symbol)}\b.*?(?=^###\s+\S+|\Z)",
+        rf"^###\s+{re.escape(symbol)}(?!\S).*?(?=^###\s+\S+|\Z)",
         re.S | re.M,
     )
     match = pattern.search(summary_text)
@@ -103,9 +107,29 @@ def collection_date(run_dir):
     return datetime.fromtimestamp(latest).date().isoformat()
 
 
-def build_review(run_dir, keyword, organism, summary_dir, ot_helper):
+def validate_summaries(genes, summaries):
+    counts = {}
+    for line in summaries.splitlines():
+        match = HEADER_RE.match(line)
+        if match:
+            symbol = match.group(1)
+            counts[symbol] = counts.get(symbol, 0) + 1
+    missing = [row["symbol"] for row in genes if counts.get(row["symbol"], 0) == 0]
+    duplicate = [row["symbol"] for row in genes if counts.get(row["symbol"], 0) > 1]
+    problems = []
+    if missing:
+        problems.append("missing summaries: " + ", ".join(missing))
+    if duplicate:
+        problems.append("duplicate summaries: " + ", ".join(duplicate))
+    if problems:
+        raise SystemExit("INCOMPLETE: " + "; ".join(problems))
+
+
+def build_review(run_dir, keyword, organism, summary_dir, ot_helper, mode="keyword",
+                 keyword_explicit=False):
     genes = read_genes(run_dir)
     summaries = read_summaries(summary_dir)
+    validate_summaries(genes, summaries)
     table_lines = []
     total_papers = 0
 
@@ -118,38 +142,45 @@ def build_review(run_dir, keyword, organism, summary_dir, ot_helper):
             for paper in papers
             if str(paper.get("year", "")).isdigit()
         ]
-        table_lines.append(
-            "| {symbol} | {relation} | {n} | {year} | {otg} | {otc} |".format(
-                symbol=symbol,
-                relation=first_relation(summaries, symbol).replace("|", "/"),
-                n=len(papers),
-                year=max(years) if years else "-",
-                otg=fmt_score(row.get("ot_genetic", "")),
-                otc=fmt_score(row.get("ot_clinical", "")),
-            )
-        )
+        table_lines.append((symbol, first_relation(summaries, symbol).replace("|", "/"),
+                            len(papers), max(years) if years else "-", row))
 
     comp_lines = [
         f"| {symbol} | {ot_genetic} | {ot_clinical} |"
         for symbol, ot_genetic, ot_clinical in ot_complement_rows(run_dir, ot_helper)
     ]
+    # SKILL.md Phase 4 gating: no ot_scores.tsv, or a header-only helper result,
+    # drops the OT columns, the cross-reference section, and the OT method line.
+    show_ot = bool(comp_lines)
+    summary_header = "문헌 요약" if mode == "gene-list" and not keyword_explicit else "키워드 연관성(요약)"
+
+    if show_ot:
+        header = [f"| Gene | {summary_header} | 근거 논문 수 | 최신 연도 | OT유전 | OT임상 |",
+                  "|------|----------------------|-------------|----------|--------|--------|"]
+        rows = [f"| {s} | {rel} | {n} | {y} | {fmt_score(r.get('ot_genetic', ''))} | "
+                f"{fmt_score(r.get('ot_clinical', ''))} |" for s, rel, n, y, r in table_lines]
+        caption = [(
+            "> OT유전/OT임상 = OpenTargets DB 점수"
+            "(문헌 근거 아님, 참고용). 값은 genes.tsv의 "
+            "ot_genetic/ot_clinical이며, 없으면 '-'입니다.\n"
+        )]
+    else:
+        header = [f"| Gene | {summary_header} | 근거 논문 수 | 최신 연도 |",
+                  "|------|----------------------|-------------|----------|"]
+        rows = [f"| {s} | {rel} | {n} | {y} |" for s, rel, n, y, _ in table_lines]
+        caption = [""]
 
     doc = [
         f"# {keyword} 관련 Gene 문헌 조사\n",
         "## 요약 (한눈에 보기)\n",
-        "| Gene | 키워드 연관성(요약) | 근거 논문 수 | 최신 연도 | OT유전 | OT임상 |",
-        "|------|----------------------|-------------|----------|--------|--------|",
-        *table_lines,
-        (
-            "> OT유전/OT임상 = OpenTargets DB 점수"
-            "(문헌 근거 아님, 참고용). 값은 genes.tsv의 "
-            "ot_genetic/ot_clinical이며, 없으면 '-'입니다.\n"
-        ),
+        *header,
+        *rows,
+        *caption,
         "## Gene별 상세\n",
         summaries,
     ]
 
-    if comp_lines:
+    if show_ot:
         doc.extend([
             "## OpenTargets 교차참조 (문헌 근거 아님)\n",
             (
@@ -163,9 +194,15 @@ def build_review(run_dir, keyword, organism, summary_dir, ot_helper):
             "",
         ])
 
+    gene_list_context = f', keyword="{keyword}"' if keyword_explicit else ""
+    method_gene_line = (
+        f'- Gene 목록: PubTator3 NER + NCBI Gene, keyword="{keyword}", organism={organism}, N={len(genes)}'
+        if mode == "keyword" else
+        f"- Gene 목록: 사용자 제공 목록{gene_list_context}, organism={organism}, N={len(genes)}"
+    )
     doc.extend([
         "## 방법\n",
-        f'- Gene 목록: PubTator3 NER + NCBI Gene, keyword="{keyword}", organism={organism}, N={len(genes)}',
+        method_gene_line,
         (
             "- 문헌: PubMed E-utilities, gene별 상위 논문 수집, "
             f"수집일 {collection_date(run_dir)}, 근거 논문 {total_papers}개"
@@ -178,19 +215,19 @@ def build_review(run_dir, keyword, organism, summary_dir, ot_helper):
             "- 철회 논문: PubMed가 Retracted Publication으로 표시한 논문은 "
             "철회로 표시하고 근거에서 제외"
         ),
-        (
+        *([(
             "- OpenTargets overlay: genetic/clinical 점수는 DB 교차참조이며 "
             "문헌 evidence 또는 ranking 기준이 아님"
-        ),
+        )] if show_ot else []),
         (
             "- 인용 검증: verify_citations.py로 모든 PMID가 수집 JSON에 "
             "존재하는지 기계적으로 대조"
         ),
-        (
+        *([(
             "- 주의: spec_adj는 keyword 맥락에서 얼마나 함께 연구되는지의 "
             "지표이며 causal association 증명이 아님. 최종 해석은 abstract "
             "근거 확인이 필요함.\n"
-        ),
+        )] if mode == "keyword" else []),
     ])
     return "\n".join(doc)
 
@@ -220,8 +257,87 @@ def selftest():
         )
         review = build_review(run_dir, "demo keyword", "human", summary_dir, pathlib.Path("missing.py"))
         assert "# demo keyword 관련 Gene 문헌 조사" in review
+        assert "| Gene | 키워드 연관성(요약) | 근거 논문 수 | 최신 연도 |" in review
+        # no ot_scores.tsv -> OT columns, section, and method line all dropped
+        assert "| IL31 | IL31은 AD itch와 연결된다. | 1 | 2024 |" in review
+        assert "OT유전" not in review and "OpenTargets" not in review
+
+        # ot_scores.tsv + helper with a complement row -> OT columns and section shown
+        (run_dir / "ot_scores.tsv").write_text("symbol\tot_genetic\tot_clinical\n", encoding="utf-8")
+        helper = pathlib.Path(tmp) / "fake_helper.py"
+        helper.write_text("print('symbol\\tot_genetic\\tot_clinical\\nCD40\\t0.700\\t0.900')\n", encoding="utf-8")
+        review = build_review(run_dir, "demo keyword", "human", summary_dir, helper)
         assert "| IL31 | IL31은 AD itch와 연결된다. | 1 | 2024 | 0.100 | - |" in review
-        assert "OpenTargets 교차참조" not in review
+        assert "| CD40 | 0.700 | 0.900 |" in review
+        assert "- OpenTargets overlay:" in review
+
+        for label in ("키워드와의 연관성", "키워드와의 연결성", "핵심 문헌 요지", "통합 문헌 요약"):
+            assert first_relation(f"### IL31\n- **{label}**: relation text [PMID:1].\n", "IL31") == "relation text."
+        assert first_relation(
+            "### IL31-AS1\n- **키워드와의 연관성**: wrong.\n"
+            "### IL31\n- **키워드와의 연관성**: right.\n", "IL31"
+        ) == "right."
+
+        review = build_review(run_dir, "demo keyword", "human", summary_dir, pathlib.Path("missing.py"),
+                              mode="gene-list")
+        assert "| Gene | 문헌 요약 | 근거 논문 수 | 최신 연도 |" in review
+        assert "- Gene 목록: 사용자 제공 목록, organism=human, N=1" in review
+        assert "spec_adj" not in review
+        review = build_review(run_dir, "context", "human", summary_dir, pathlib.Path("missing.py"),
+                              mode="gene-list", keyword_explicit=True)
+        assert "| Gene | 키워드 연관성(요약) | 근거 논문 수 | 최신 연도 |" in review
+        assert '- Gene 목록: 사용자 제공 목록, keyword="context", organism=human, N=1' in review
+
+        review = build_review(run_dir, "demo keyword", "human", summary_dir, helper,
+                              mode="gene-list")
+        assert "| Gene | 문헌 요약 | 근거 논문 수 | 최신 연도 | OT유전 | OT임상 |" in review
+
+        (summary_dir / "batch01.md").write_text("### IL31\n### IL31\n", encoding="utf-8", newline="\n")
+        try:
+            build_review(run_dir, "demo", "human", summary_dir, pathlib.Path("missing.py"))
+        except SystemExit as exc:
+            assert "IL31" in str(exc)
+        else:
+            raise AssertionError("duplicate summary must fail")
+        (summary_dir / "batch01.md").unlink()
+        (summary_dir / "batch01.md").write_text("### IL31\n", encoding="utf-8", newline="\n")
+        (summary_dir / "batch02.md").write_text("### IL31\n", encoding="utf-8", newline="\n")
+        try:
+            build_review(run_dir, "demo", "human", summary_dir, pathlib.Path("missing.py"))
+        except SystemExit as exc:
+            assert "IL31" in str(exc)
+        else:
+            raise AssertionError("duplicate summaries across batches must fail")
+        (summary_dir / "batch02.md").unlink()
+
+        (run_dir / "genes.tsv").write_text("symbol\nIL31\nCD40\n", encoding="utf-8", newline="\n")
+        (summary_dir / "batch01.md").write_text("### IL31\n", encoding="utf-8", newline="\n")
+        sentinel = run_dir / "gene_literature_review.md"
+        sentinel.write_text("sentinel\n", encoding="utf-8", newline="\n")
+        saved_argv = sys.argv
+        sys.argv = ["integrate_review.py", "--run-dir", str(run_dir)]
+        try:
+            try:
+                main()
+            except SystemExit as exc:
+                assert "CD40" in str(exc)
+            else:
+                raise AssertionError("missing summary must fail")
+        finally:
+            sys.argv = saved_argv
+        assert sentinel.read_text(encoding="utf-8") == "sentinel\n"
+
+        sys.argv = ["integrate_review.py", "--selftest", "--mode", "invalid"]
+        try:
+            with redirect_stderr(StringIO()):
+                try:
+                    parse_args()
+                except SystemExit as exc:
+                    assert exc.code == 2
+                else:
+                    raise AssertionError("invalid mode must fail argument parsing")
+        finally:
+            sys.argv = saved_argv
     print("ok: integrate_review self-checks pass")
 
 
@@ -233,6 +349,7 @@ def parse_args():
     parser.add_argument("--summaries", help="Default: <run-dir>/summaries")
     parser.add_argument("--out", help="Default: <run-dir>/gene_literature_review.md")
     parser.add_argument("--ot-helper", help="Default: scripts/ot_complement.py next to this script")
+    parser.add_argument("--mode", choices=("keyword", "gene-list"), default="keyword")
     parser.add_argument("--selftest", action="store_true")
     args = parser.parse_args()
     if not args.selftest and not args.run_dir:
@@ -253,7 +370,8 @@ def main():
     ot_helper = pathlib.Path(args.ot_helper) if args.ot_helper else pathlib.Path(__file__).with_name("ot_complement.py")
 
     out.write_text(
-        build_review(run_dir, keyword, args.organism, summary_dir, ot_helper),
+        build_review(run_dir, keyword, args.organism, summary_dir, ot_helper, args.mode,
+                     keyword_explicit=bool(args.keyword)),
         encoding="utf-8",
         newline="\n",
     )

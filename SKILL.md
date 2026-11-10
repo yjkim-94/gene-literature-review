@@ -9,7 +9,7 @@ Given a keyword (or a user-supplied gene list), proceed in order: **① related 
 
 **Two entry modes — route first (both are first-class, not fallbacks):**
 - **Mode A · keyword given** ("X에 관여하는 유전자", "review genes in X"): Phase 1 discovers and ranks genes from the keyword (with `--ot-overlay` for disease keywords), then 2 → 3 → 4.
-- **Mode B · gene list given** ("이 유전자들 문헌 정리해줘: GENE1, GENE2, GENE3"): **skip Phase 1 discovery/ranking**. Write the user's symbols to `output/manual/genes.tsv` (single `symbol` column, header row), then 2 → 3 → 4. Keyword handling: if the user also names a disease/keyword context, pass it as `--keyword` in Phase 2 for keyword-specific papers; with no context, omit `--keyword` for **general per-gene literature** and use the `핵심 문헌 요지` label in Phase 3. The confirmation gate (Phase 2) and citation verify (Phase 4) apply identically. OT overlay is a Mode-A feature only (it needs keyword→disease resolution and a discovered candidate pool), so Mode B produces no OT columns/section.
+- **Mode B · gene list given** ("이 유전자들 문헌 정리해줘: GENE1, GENE2, GENE3"): **skip Phase 1 discovery/ranking**. Write the user's symbols to `output/manual/genes.tsv` (single `symbol` column, header row), then 2 → 3 → 4. Use `--mode gene-list` in Phase 4. Keyword handling: pass `--keyword "<context>"` in Phase 2 and Phase 4 only when the user also supplied a disease/keyword context; otherwise omit `--keyword` for **general per-gene literature**, generate Phase 3 batches with `make_phase3_batches.py --general-literature`, and use the `핵심 문헌 요지` label. The confirmation gate (Phase 2) and citation verify (Phase 4) apply identically. OT overlay is a Mode-A feature only (it needs keyword→disease resolution and a discovered candidate pool), so Mode B produces no OT columns/section.
 
 ### Run directory (artifact naming — one place, everything chains off it)
 
@@ -23,6 +23,7 @@ output/<slug>/
   genes_all_scored.tsv          # Phase 1 pre-filter sidecar (auto)
   phase2_fetch_pubmed.log       # Phase 2 progress log (A+B format, live)
   lit/<SYMBOL>.json             # Phase 2 abstracts, one file per gene
+  summaries/batchNN.md          # Phase 3 summaries, one file per completed batch
   gene_literature_review.md     # Phase 4 final document
 ```
 
@@ -226,7 +227,7 @@ Produces `output/<slug>/lit/<symbol>.json` per gene. Each paper record:
 
 ## Phase 3 — Per-gene summary (identical template)
 
-Summarize each gene from its `output/<slug>/lit/<symbol>.json`. **Apply the exact same procedure and format to every gene** — varying depth or format per gene makes the integrated document uneven.
+Summarize each gene from its `output/<slug>/lit/<symbol>.json`. **Apply the exact same procedure and format to every gene** — varying depth or format per gene makes the integrated document uneven. Save each completed summary before Phase 4: sequential processing saves all blocks to `output/<slug>/summaries/batch01.md`; parallel processing has the main agent save each returned batch as `output/<slug>/summaries/batchNN.md`. Before Phase 4, verify that every current batch has its corresponding summary file. Do not mix stale summary batches from an earlier run with the current input. Apply the same rule under `output/manual/`.
 
 ### 9 or fewer genes: sequential in the main context
 
@@ -276,7 +277,7 @@ Rules:
 - Cite ONLY PMIDs that exist in the file. Never invent a PMID or a finding.
 - If a paper's "retracted" is true, mark ⚠철회 in its 접근수준 cell and do NOT use it in 연관성/주요 발견 (drop it as evidence).
 - If a claim is from an abstract-only paper, that is fine — the access column records it.
-- If the file has no papers, write "관련 문헌 없음" and stop.
+- If the file has no papers, keep the `### <SYMBOL> - <full gene name>` header line, write "관련 문헌 없음" under it, and stop.
 Return only the filled template, nothing else.
 ```
 
@@ -290,9 +291,13 @@ Assemble the per-gene summaries into a final document. **Save it as `output/<slu
 
 ```bash
 python scripts/integrate_review.py --run-dir output/<slug> --keyword "<keyword>" --organism <organism>
+# Mode B with user-provided context:
+python scripts/integrate_review.py --run-dir output/manual --mode gene-list --keyword "<context>"
+# Mode B with no context: omit --keyword.
+python scripts/integrate_review.py --run-dir output/manual --mode gene-list
 ```
 
-The script reads `genes.tsv`, `summaries/batch*.md`, `lit/*.json`, and optional `ot_scores.tsv`; it writes the summary table, per-gene details, OpenTargets cross-reference, and method section. Always use this structure (the document is user-facing, so its headings stay Korean):
+The script reads `genes.tsv`, `summaries/batch*.md`, `lit/*.json`, and optional `ot_scores.tsv`; it writes the summary table, per-gene details, OpenTargets cross-reference, and method section. If summary completeness fails, fix the Phase 3 summary files and rerun the script; do not hand-assemble the document. Always use this structure (the document is user-facing, so its headings stay Korean):
 
 ```markdown
 # <keyword> 관련 Gene 문헌 조사

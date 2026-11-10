@@ -1,7 +1,7 @@
 # gene-literature-review — 개발 상태 (dev_state)
 
 > 목적: 이 프로젝트가 **무엇을·왜·어떻게** 만들어졌는지, 그리고 **무엇을 시도했다 접었는지**를 한 곳에 정리.
-> 사람과 다른 에이전트가 맥락을 빠르게 잡는 용도. 최종 갱신: 2026-07-14 (SKILL.md 근거 서술을 `docs/method-rationale.md`로 분리 — 절차는 SKILL.md 유지, 측정치·유도만 이관).
+> 사람과 다른 에이전트가 맥락을 빠르게 잡는 용도. 최종 갱신: 2026-11-10 (보고서 완전성 검사·인용 검증 강화·Mode B 정리, 설치본 동기화를 SSH 해시 기준으로 변경).
 >
 > 세부 근거 문서: `docs/method-rationale.md`(SKILL 설계 근거·측정치), `docs/cdrs-eval-findings.md`(CDRS 기각), `docs/mcp-eval-plan.md`(MCP 대체 평가).
 
@@ -53,7 +53,7 @@ PubTator3의 **entity 기반 co-occurrence**로 특이도를 잰다(문자열 ti
 - `gene_papers` = gene entity 전체 논문 수
 - `specificity = co_papers / gene_papers`, ranking key는 그 **Wilson lower bound**(`spec_adj`) —
   3/3 같은 소표본 우연이 140/400 같은 진짜 core gene을 못 이기게 하한으로 눌러줌.
-- filter: `min_co 5`, `min_specificity(=spec_adj) 0.05`, `min_gene_papers 10`.
+- filter: `min_co 10`(gate), `min_specificity(=spec_adj) 0.0`(off — spec_adj는 정렬 전용), `min_gene_papers 10`. (2026-07-14 변경 전: `min_co 5`, `min_specificity 0.05`)
 - **2026-07-07 채택**: 정렬 키가 `spec_adj` → `artifact_weight × spec_adj`로 바뀜. Ig/TCR/HLA 같은
   **구조적 문헌 아티팩트 gene**(예: IGHE)을 0.5× 감점(제거 아님). `is_artifact()` 심볼 regex로 판정.
   → 아래 §4의 CDRS 평가에서 유일하게 살아남아 검증된 개선.
@@ -283,3 +283,12 @@ atopic dermatitis 재run(`--max 500`, scan 30,000, human, `--ot-overlay`) 중 �
 - 이관 대상: Design principles 근거, spec 공식 측정치(OR-collapse 20,466<66,111·Wilson 3/3 예시·dropped relative-percentile floor FDX1), OT held-out 7/8 수치, spec_adj 2축 배경(IL4 co=8409), Phase3 token model 유도(`38,800+4,950·b`).
 - 결과: SKILL.md 본문 5,272→4,761 단어, description 6예시→2예시로 축약. `docs/method-rationale.md` 120줄 신설, 포인터 7곳.
 - 검증: 포인터 링크 대상 파일 존재 확인. 절차·규칙 문장은 무손실(라우팅·run dir·커맨드·게이트 그대로).
+
+## 2026-11-10 보고서 완전성 검사·인용 검증 강화·Mode B 정리
+review(sol) → fix(terra) 루프로 High 0 확인 후 반영.
+- `integrate_review.py`: genes.tsv의 각 symbol이 `summaries/batch*.md`에 `### <SYMBOL>`로 정확히 1회 있어야 한다. 누락·중복이면 `INCOMPLETE`로 종료하고 출력 파일을 쓰지 않는다(손으로 조립하지 말고 summary를 고쳐 재실행). relation 라벨 4종 허용, `IL31-AS1`이 `IL31`로 잡히던 매칭 수정. `--mode {keyword,gene-list}` 추가 — gene-list에서 context가 없으면 요약 표 열 이름이 `문헌 요약`. OT 열·절은 OT 데이터가 있을 때만 출력.
+- `verify_citations.py`: 논문이 있는데 인용 0건이면 `NO_CITATIONS`, 논문이 있는데 `관련 문헌 없음`이면 `FALSE_NO_LITERATURE`. `##` heading에서 gene section이 끝난다.
+- `make_phase3_batches.py`: 라벨 통일(`키워드와의 연관성` / `--general-literature` → `핵심 문헌 요지`), 근거 표 헤더 `| PMID | 연도 | 접근수준 | 한 줄 요지 |`, 논문이 없으면 `### <SYMBOL>` 헤더를 유지하고 `관련 문헌 없음`.
+- `fetch_genes.py`·`fetch_pubmed.py`: 네트워크 실패 메시지에서 `api_key` 마스킹(+ 회귀 테스트).
+- SKILL.md: Phase 3 결과를 `summaries/batchNN.md`로 저장하는 계약, Mode B 절차.
+- 설치본 동기화: hook이 Z: 마운트 robocopy 대신 innowl01 해시 목록(SSH) 기준으로 다른 파일만 받는다 — 마운트의 옛 내용이 설치본과 두 서버로 퍼진 일(2026-11-10) 때문.
